@@ -199,7 +199,144 @@ const exampleDoubleFacedCard = {
   }
 };
 
+const exampleAdventureCard = {
+  object: 'card',
+  id: '75754468-2850-42e6-ab22-61ff7b9d1214',
+  oracle_id: '91e71279-c9d2-4873-916a-59da03a65741',
+  multiverse_ids: [
+    472976
+  ],
+  mtgo_id: 78118,
+  arena_id: 70472,
+  tcgplayer_id: 198743,
+  name: 'Giant Killer // Chop Down',
+  lang: 'en',
+  released_at: '2019-10-04',
+  uri: 'https://api.scryfall.com/cards/75754468-2850-42e6-ab22-61ff7b9d1214',
+  scryfall_uri: 'https://scryfall.com/card/eld/14/giant-killer-chop-down?utm_source=api',
+  layout: 'adventure',
+  highres_image: true,
+  image_uris: {
+    small: 'https://img.scryfall.com/cards/small/front/7/5/75754468-2850-42e6-ab22-61ff7b9d1214.jpg?1571720965',
+    normal: 'https://img.scryfall.com/cards/normal/front/7/5/75754468-2850-42e6-ab22-61ff7b9d1214.jpg?1571720965',
+    large: 'https://img.scryfall.com/cards/large/front/7/5/75754468-2850-42e6-ab22-61ff7b9d1214.jpg?1571720965',
+    png: 'https://img.scryfall.com/cards/png/front/7/5/75754468-2850-42e6-ab22-61ff7b9d1214.png?1571720965',
+    art_crop: 'https://img.scryfall.com/cards/art_crop/front/7/5/75754468-2850-42e6-ab22-61ff7b9d1214.jpg?1571720965',
+    border_crop: 'https://img.scryfall.com/cards/border_crop/front/7/5/75754468-2850-42e6-ab22-61ff7b9d1214.jpg?1571720965'
+  },
+  mana_cost: '{W} // {2}{W}',
+  cmc: 1,
+  type_line: 'Creature — Human Peasant // Instant — Adventure',
+  power: '1',
+  toughness: '2',
+  colors: [
+    'W'
+  ],
+  color_identity: [
+    'W'
+  ],
+  card_faces: [
+    {
+      object: 'card_face',
+      name: 'Giant Killer',
+      mana_cost: '{W}',
+      type_line: 'Creature — Human Peasant',
+      oracle_text: '{1}{W}, {T}: Tap target creature.',
+      power: '1',
+      toughness: '2',
+      flavor_text: '"What size advantage? They never even see me coming."',
+      artist: 'Jesper Ejsing',
+      artist_id: 'a5f8354a-8b51-4e59-96b2-0e3aeae4fa1d',
+      illustration_id: '4f255291-7e3c-4f3a-8c08-51b72e576696'
+    },
+    {
+      object: 'card_face',
+      name: 'Chop Down',
+      mana_cost: '{2}{W}',
+      type_line: 'Instant — Adventure',
+      oracle_text: 'Destroy target creature with power 4 or greater. (Then exile this card. You may cast the creature later from exile.)',
+      artist: 'Jesper Ejsing',
+      artist_id: 'a5f8354a-8b51-4e59-96b2-0e3aeae4fa1d'
+    }
+  ],
+  legalities: {
+    standard: 'legal',
+    future: 'legal',
+    historic: 'legal',
+    pioneer: 'legal',
+    modern: 'legal',
+    legacy: 'legal',
+    pauper: 'not_legal',
+    vintage: 'legal',
+    penny: 'legal',
+    commander: 'legal',
+    brawl: 'legal',
+    duel: 'legal',
+    oldschool: 'not_legal'
+  },
+  games: [
+    'arena',
+    'mtgo',
+    'paper'
+  ],
+  reserved: false,
+  foil: true,
+  nonfoil: true,
+  oversized: false,
+  promo: false,
+  reprint: false,
+  variation: false,
+  set: 'eld',
+  set_name: 'Throne of Eldraine',
+  set_type: 'expansion',
+  set_uri: 'https://api.scryfall.com/sets/a90a7b2f-9dd8-4fc7-9f7d-8ea2797ec782',
+  set_search_uri: 'https://api.scryfall.com/cards/search?order=set&q=e%3Aeld&unique=prints',
+  scryfall_set_uri: 'https://scryfall.com/sets/eld?utm_source=api',
+  rulings_uri: 'https://api.scryfall.com/cards/75754468-2850-42e6-ab22-61ff7b9d1214/rulings',
+  prints_search_uri: 'https://api.scryfall.com/cards/search?order=released&q=oracleid%3A91e71279-c9d2-4873-916a-59da03a65741&unique=prints',
+  collector_number: '14',
+  digital: false,
+  rarity: 'rare',
+  flavor_text: '"What size advantage? They never even see me coming."',
+  card_back_id: '0aeebaf5-8c7d-4636-9e82-8c27447861f7',
+  artist: 'Jesper Ejsing',
+  artist_ids: [
+    'a5f8354a-8b51-4e59-96b2-0e3aeae4fa1d'
+  ],
+  illustration_id: '4f255291-7e3c-4f3a-8c08-51b72e576696',
+  border_color: 'black',
+  frame: '2015',
+  full_art: false,
+  textless: false,
+  booster: true,
+  story_spotlight: false,
+  edhrec_rank: 12643,
+  preview: {
+    source: 'Amaz',
+    source_uri: 'https://twitter.com/Amaz/status/1171122126486757381',
+    previewed_at: '2019-09-09'
+  },
+  prices: {
+    usd: '0.24',
+    usd_foil: '0.30',
+    eur: '0.19',
+    tix: '0.01'
+  },
+  related_uris: {
+    gatherer: 'https://gatherer.wizards.com/Pages/Card/Details.aspx?multiverseid=472976',
+    tcgplayer_decks: 'https://decks.tcgplayer.com/magic/deck/search?contains=Giant+Killer&page=1&partner=Scryfall&utm_campaign=affiliate&utm_medium=scryfall&utm_source=scryfall',
+    edhrec: 'https://edhrec.com/route/?cc=Giant+Killer',
+    mtgtop8: 'https://mtgtop8.com/search?MD_check=1&SB_check=1&cards=Giant+Killer'
+  },
+  purchase_uris: {
+    tcgplayer: 'https://shop.tcgplayer.com/product/productsearch?id=198743&partner=Scryfall&utm_campaign=affiliate&utm_medium=scryfall&utm_source=scryfall',
+    cardmarket: 'https://www.cardmarket.com/en/Magic/Products/Singles/Throne-of-Eldraine/Giant-Killer-Chop-Down?referrer=scryfall&utm_campaign=card_prices&utm_medium=text&utm_source=scryfall',
+    cardhoarder: 'https://www.cardhoarder.com/cards/78118?affiliate_id=scryfall&ref=card-profile&utm_campaign=affiliate&utm_medium=card&utm_source=scryfall'
+  }
+};
+
 module.exports = {
   exampleCard: exampleCard,
-  exampleDoubleFacedCard: exampleDoubleFacedCard
+  exampleDoubleFacedCard: exampleDoubleFacedCard,
+  exampleAdventureCard: exampleAdventureCard
 }

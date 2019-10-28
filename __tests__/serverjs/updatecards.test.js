@@ -31,7 +31,8 @@ const convertedExampleCard = {
   colors: ['R'],
   type: 'Creature — Devil',
   tcgplayer_id: 180776,
-  power: '3',
+  power: '4',
+  toughness: '3',
   image_small: 'https://img.scryfall.com/cards/small/front/a/5/a5ebb551-6b0d-45fa-88c8-3746214094f6.jpg?1547517462',
   image_normal: 'https://img.scryfall.com/cards/normal/front/a/5/a5ebb551-6b0d-45fa-88c8-3746214094f6.jpg?1547517462',
   art_crop: 'https://img.scryfall.com/cards/art_crop/front/a/5/a5ebb551-6b0d-45fa-88c8-3746214094f6.jpg?1547517462',
@@ -65,10 +66,45 @@ const convertedExampleDoubleFacedCardFlipFace = {
   type: 'Creature — Werewolf',
   tcgplayer_id: 57617,
   power: '2',
+  toughness: '2',
   image_small: undefined,
   image_normal: undefined,
   art_crop: undefined,
   colorcategory: 'g'
+};
+
+const convertedExampleAdventureCard = {
+  color_identity: ['W'],
+  set: 'eld',
+  collector_number: '14',
+  promo: false,
+  digital: false,
+  border_color: 'black',
+  name: 'Giant Killer',
+  name_lower: 'giant killer',
+  full_name: 'Giant Killer [eld-14]',
+  artist: 'Jesper Ejsing',
+  scryfall_uri: 'https://scryfall.com/card/eld/14/giant-killer-chop-down?utm_source=api',
+  rarity: 'rare',
+  oracle_text: undefined, // FIXME: Oracle Text of Adventure and Transform cards is not populated.
+  _id: '75754468-2850-42e6-ab22-61ff7b9d1214',
+  cmc: 1,
+  legalities: {
+    Legacy: true,
+    Modern: true,
+    Standard: true,
+    Pauper: false
+  },
+  parsed_cost: ['w'],
+  colors: ['W'],
+  type: 'Creature — Human Peasant',
+  tcgplayer_id: 198743,
+  power: '1',
+  toughness: '2',
+  image_small: 'https://img.scryfall.com/cards/small/front/7/5/75754468-2850-42e6-ab22-61ff7b9d1214.jpg?1571720965',
+  image_normal: 'https://img.scryfall.com/cards/normal/front/7/5/75754468-2850-42e6-ab22-61ff7b9d1214.jpg?1571720965',
+  art_crop: 'https://img.scryfall.com/cards/art_crop/front/7/5/75754468-2850-42e6-ab22-61ff7b9d1214.jpg?1571720965',
+  colorcategory: 'w'
 };
 
 const convertFnToAttribute = {
@@ -82,12 +118,21 @@ const convertFnToAttribute = {
 };
 
 beforeEach(() => {
-  rimraf.sync("private");
+  try {
+    rimraf.sync("private");
+  } catch (e) {
+    console.error(e);
+  }
+
   updatecards.initializeCatalog();
 });
 
 afterEach(() => {
-  rimraf.sync("private");
+  try {
+    rimraf.sync("private");
+  } catch (e) {
+    console.error(e);
+  }
 });
 
 test("updateCardbase creates the expected files", () => {
@@ -208,11 +253,39 @@ test("convertCard returns a correctly converted double-faced card object", () =>
   expect(result).toEqual(convertedExampleDoubleFacedCardFlipFace);
 });
 
-var attribute;
-for (var convertFn in convertFnToAttribute) {
-  attribute = convertFnToAttribute[convertFn];
-  test(convertFn + " properly converts a double-faced card's " + attribute, () => {
-    const result = updatecards[convertFn](examplecards.exampleDoubleFacedCard, true);
-    expect(result).toBe(convertedExampleDoubleFacedCardFlipFace[attribute]);
-  });
+// var attribute;
+// for (var convertFn in convertFnToAttribute) {
+//   attribute = convertFnToAttribute[convertFn];
+//   test(convertFn + " properly converts a double-faced card's " + attribute, () => {
+//     const result = updatecards[convertFn](examplecards.exampleDoubleFacedCard, true);
+//     expect(result).toEqual(convertedExampleDoubleFacedCardFlipFace[attribute]);
+//   });
+// }
+
+test("convertCard returns a correctly converted Adventure card object", () => {
+  const result = updatecards.convertCard(examplecards.exampleAdventureCard);
+  expect(result).toEqual(convertedExampleAdventureCard);
+});
+
+// for (var convertFn in convertFnToAttribute) {
+//   attribute = convertFnToAttribute[convertFn];
+//   test(convertFn + " properly converts an adventure card's " + attribute, () => {
+//     const result = updatecards[convertFn](examplecards.exampleAdventureCard, true);
+//     expect(result).toEqual(convertedExampleAdventureCard[attribute]);
+//   });
+// }
+
+function testAttributes(cardTypeName, exampleCard, convertFlag, convertedCard) {
+  var attribute;
+  for (let convertFn in convertFnToAttribute) {
+    attribute = convertFnToAttribute[convertFn];
+    test(`${convertFn}: properly converts a(n) ${cardTypeName} card's ${attribute}`, () => {
+      const result = updatecards[convertFn](exampleCard, convertFlag);
+      console.log(`expect: ${result} ---- ${convertedCard[attribute]}`);
+      expect(result).toEqual(convertedCard[attribute]);
+    });
+  }
 }
+
+testAttributes('Double-Faced', examplecards.exampleDoubleFacedCard, true, convertedExampleDoubleFacedCardFlipFace);
+testAttributes('Adventure', examplecards.exampleAdventureCard, true, convertedExampleAdventureCard);
