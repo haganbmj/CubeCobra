@@ -1670,6 +1670,29 @@ router.post('/startdraft/:id', function(req, res) {
   });
 });
 
+router.get(`/startdraft/:id`, async (req, res) => {
+  let cube;
+  try {
+    cube = await Cube.findOne(build_id_query(req.params.id));
+  } catch(e) {
+    req.flash('danger', 'Cube not found');
+    res.status(404).render('misc/404', {});
+  }
+
+  const params = {
+    id: req.query.id ? parseInt(req.query.id) : -1,
+    seats: parseInt(req.query.seats),
+    packs: parseInt(req.query.packs),
+    cards: parseInt(req.query.cards)
+  };
+
+  if (params.id === -1) {
+    startStandardDraft(req, res, params, cube);
+  } else {
+    startCustomDraft(req, res, params, cube);
+  }
+});
+
 router.get('/draft/:id', function(req, res) {
   Draft.findById(req.params.id, function(err, draft) {
     if (!draft) {
