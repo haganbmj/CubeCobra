@@ -21,4 +21,16 @@ let deckSchema = mongoose.Schema({
   cols: Number
 });
 
+deckSchema.virtual('cubeCube', {
+  ref: 'Cube',
+  localField: 'cube',
+  foreignField: '_id'
+});
+
+deckSchema.virtual('ownerUser', {
+  ref: 'User',
+  localField: 'owner',
+  foreignField: '_id'
+});
+
 let Deck = module.exports = mongoose.model('Deck', deckSchema)

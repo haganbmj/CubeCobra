@@ -33,4 +33,10 @@ const UserSchema = mongoose.Schema({
   edit_token: String
 });
 
+UserSchema.virtual('profileUrl').get(function() {
+  return `/user/view/${this._id}`;
+});
+
+UserSchema.set('toJSON', { virtuals: true });
+
 const User = module.exports = mongoose.model('User', UserSchema);

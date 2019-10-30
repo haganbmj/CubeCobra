@@ -2388,8 +2388,37 @@ router.get('/deckbuilder/:id', function(req, res) {
   });
 });
 
+router.get('/deck2/:id', async (req, res) => {
+  const deck = await Deck.findById(req.params.id);
+  if (!deck) {
+    req.flash('danger', 'Deck not found');
+    return res.status(404).render('misc/404', {});
+  }
+
+  await Cube.populate(deck, { path: 'cube', select: 'id name owner card_count type image_uri short_id url_alias' });
+  if (!deck.cube) {
+    req.flash('danger', 'Cube not found');
+    return res.status(404).render('misc/404', {});
+  }
+
+  await Promise.all([
+    await User.populate(deck, { path: 'owner', select: 'id username profileUrl' }),
+    await User.populate(deck.cube, { path: 'owner', select: 'id username profileUrl' })
+  ]);
+
+  return res.send({
+    deck: deck,
+    cube: deck.cube,
+    deckOwner: deck.owner ? deck.owner : { username: 'Anonymous' },
+    cubeOwner: deck.cube.owner
+  });
+});
+
 router.get('/deck/:id', function(req, res) {
   Deck.findById(req.params.id, function(err, deck) {
+    console.log(deck.playerdeck);
+    console.log(deck.playersideboard);
+    console.log(deck.cards);
     if (!deck) {
       req.flash('danger', 'Deck not found');
       res.status(404).render('misc/404', {});

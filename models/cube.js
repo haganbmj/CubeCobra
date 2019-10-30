@@ -65,4 +65,10 @@ let cubeSchema = mongoose.Schema({
   draft_formats: {}
 });
 
+cubeSchema.virtual('ownerUser', {
+  ref: 'User',
+  localField: 'owner',
+  foreignField: '_id'
+});
+
 let Cube = module.exports = mongoose.model('Cube', cubeSchema)
