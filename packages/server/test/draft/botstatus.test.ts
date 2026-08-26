@@ -43,6 +43,19 @@ describe('GET /draft/botstatus/:id', () => {
     expect(res.body).toEqual({ pending: false, failed: false });
   });
 
+  it('reports a build that never reported back as failed rather than pending forever', async () => {
+    // A Lambda timeout or crash goes to the DLQ without marking the draft failed, so the flag
+    // alone would keep the client polling a build that is never coming back.
+    (draftDao.getById as jest.Mock).mockResolvedValue({
+      id: 'd1',
+      botDecksPending: true,
+      botDecksPendingSince: Date.now() - 3 * 60 * 60 * 1000,
+    });
+    const res = await call(handler).withParams({ id: 'd1' }).send();
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ pending: false, failed: true });
+  });
+
   it('treats a missing flag as not pending', async () => {
     (draftDao.getById as jest.Mock).mockResolvedValue({ id: 'd1' });
     const res = await call(handler).withParams({ id: 'd1' }).send();

@@ -1,6 +1,7 @@
 import { changelogDao, cubeDao } from 'dynamo/daos';
 import rateLimit from 'express-rate-limit';
 import { isCubeViewable } from 'serverutils/cubefn';
+import { userOrIpKey } from 'serverutils/rateLimitKeys';
 
 import { NextFunction, Request, Response } from '../../../../types/express';
 
@@ -14,6 +15,7 @@ const publicCORS = (_req: Request, res: Response, next: NextFunction) => {
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
+  keyGenerator: userOrIpKey,
   message: '429: Too Many Requests',
 });
 

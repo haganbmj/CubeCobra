@@ -19,7 +19,7 @@
  * when dualWriteEnabled flag is set.
  */
 
-import { DynamoDBDocumentClient, PutCommand, QueryCommand, QueryCommandInput } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, QueryCommand, QueryCommandInput } from '@aws-sdk/lib-dynamodb';
 import { NativeAttributeValue } from '@aws-sdk/lib-dynamodb';
 import DraftType, { DRAFT_TYPES, DraftmancerLog, HousmanLogEntry, REVERSE_TYPES } from '@utils/datatypes/Draft';
 import DraftSeat from '@utils/datatypes/DraftSeat';
@@ -29,7 +29,9 @@ import { classifyDeck } from 'serverutils/archetype';
 import { cardFromId } from 'serverutils/carddb';
 import { v4 as uuidv4 } from 'uuid';
 
-import { getObject, putObject } from '../s3client';
+import { DaoError } from '../../../errors/DaoError';
+import { ErrorCode } from '../../../errors/errorCodes';
+import { getObject, getObjectWithETag, putObject, putObjectIfMatch } from '../s3client';
 import { BaseDynamoDao } from './BaseDynamoDao';
 import { CubeDynamoDao } from './CubeDynamoDao';
 import { UserDynamoDao } from './UserDynamoDao';
@@ -61,6 +63,7 @@ export interface UnhydratedDraft {
   DraftmancerLog?: DraftmancerLog;
   botDecksPending?: boolean;
   botDecksFailed?: boolean;
+  botDecksPendingSince?: number;
 }
 
 interface QueryResult {
@@ -140,7 +143,24 @@ export class DraftDynamoDao extends BaseDynamoDao<Draft, UnhydratedDraft> {
       DraftmancerLog: item.DraftmancerLog,
       botDecksPending: item.botDecksPending,
       botDecksFailed: item.botDecksFailed,
+      botDecksPendingSince: item.botDecksPendingSince,
     };
+  }
+
+  /**
+   * Bot-deck state belongs to the async bot-deckbuild pipeline, not to whoever happens to be
+   * saving the draft. A caller that hydrated the draft while a build was in flight holds a
+   * stale `botDecksPending: true`; writing that back after the pipeline cleared it would leave
+   * the draft pending forever, with no queued message left to clear it again. So on every
+   * update, carry these forward from what's actually stored.
+   *
+   * The pipeline sets them through {@link markBotDecksPending} / {@link applyBuiltBotDecks} /
+   * {@link markBotDecksFailed}, and creation writes them directly — those are the only writers.
+   */
+  protected refreshFromStored(stored: UnhydratedDraft, item: Draft): void {
+    item.botDecksPending = stored.botDecksPending;
+    item.botDecksFailed = stored.botDecksFailed;
+    item.botDecksPendingSince = stored.botDecksPendingSince;
   }
 
   /**
@@ -195,6 +215,7 @@ export class DraftDynamoDao extends BaseDynamoDao<Draft, UnhydratedDraft> {
       HousmanLog: seatsData.HousmanLog,
       botDecksPending: item.botDecksPending,
       botDecksFailed: item.botDecksFailed,
+      botDecksPendingSince: item.botDecksPendingSince,
     };
   }
 
@@ -274,6 +295,7 @@ export class DraftDynamoDao extends BaseDynamoDao<Draft, UnhydratedDraft> {
         HousmanLog: data.HousmanLog,
         botDecksPending: item.botDecksPending,
         botDecksFailed: item.botDecksFailed,
+        botDecksPendingSince: item.botDecksPendingSince,
       };
     });
   }
@@ -757,6 +779,7 @@ export class DraftDynamoDao extends BaseDynamoDao<Draft, UnhydratedDraft> {
     seatNames?: string[];
     botDecksPending?: boolean;
     botDecksFailed?: boolean;
+    botDecksPendingSince?: number;
   }): Promise<string> {
     const id = draftData.id || uuidv4();
     const now = Date.now();
@@ -814,6 +837,9 @@ export class DraftDynamoDao extends BaseDynamoDao<Draft, UnhydratedDraft> {
       seed: draftData.seed,
       botDecksPending: draftData.botDecksPending,
       botDecksFailed: draftData.botDecksFailed,
+      // Stamp when the build was handed off so the read side can give up on a build that
+      // never reports back (see resolveBotDeckStatus).
+      botDecksPendingSince: draftData.botDecksPending ? (draftData.botDecksPendingSince ?? now) : undefined,
     };
 
     // Add seat names to each seat
@@ -853,6 +879,40 @@ export class DraftDynamoDao extends BaseDynamoDao<Draft, UnhydratedDraft> {
   }
 
   /**
+   * Read-modify-write of a draft's seats blob, touching only what `patch` changes.
+   *
+   * The seats blob has two independent writers — the bot-deckbuild lambda (bot seats) and the
+   * deckbuilder (the player's own seat) — so a plain read-then-write loses whichever change
+   * landed in between. The write is conditional on the ETag we read; if someone else wrote
+   * first we re-read and re-apply instead of clobbering them. `patch` must be idempotent.
+   */
+  private async patchSeats(draftId: string, context: string, patch: (seats: any[]) => void): Promise<void> {
+    const bucket = process.env.DATA_BUCKET!;
+    const key = `seats/${draftId}.json`;
+    const MAX_RETRIES = 5;
+
+    for (let attempt = 0; ; attempt++) {
+      const { value: seatsData, etag } = await getObjectWithETag(bucket, key);
+      if (!seatsData || !Array.isArray(seatsData.seats)) {
+        throw new Error(`${context}: seats not found for draft ${draftId}`);
+      }
+
+      patch(seatsData.seats);
+
+      if (await putObjectIfMatch(bucket, key, seatsData, etag)) {
+        return;
+      }
+
+      if (attempt >= MAX_RETRIES - 1) {
+        throw new Error(`${context}: seats blob for draft ${draftId} changed under every attempt`);
+      }
+
+      // Exponential backoff with jitter to spread out contending writers.
+      await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 50 + Math.floor(Math.random() * 50)));
+    }
+  }
+
+  /**
    * Apply asynchronously-built bot decks to a draft, touching ONLY the given bot seats.
    *
    * Used by the bot-deckbuild lambda's write-back. It read-modify-writes the current seats
@@ -860,42 +920,59 @@ export class DraftDynamoDao extends BaseDynamoDao<Draft, UnhydratedDraft> {
    * are not clobbered — only the specified bot seats' mainboard/sideboard/name change. On the
    * metadata item it clears `botDecksPending` and updates just those bot seats' names, leaving
    * the player-driven draft name and human seat names alone.
+   *
+   * Both writes are conditional (S3 ETag / DynamoVersion), so the player's concurrent deck
+   * save can't be lost — and can't lose this write either.
    */
   public async applyBuiltBotDecks(
     draftId: string,
     botSeats: { seatIndex: number; mainboard: number[][][]; sideboard: number[][][]; name: string }[],
   ): Promise<void> {
-    const bucket = process.env.DATA_BUCKET!;
-
     // 1. Patch only the bot seats in the current seats blob (preserves player edits).
-    const seatsData = await getObject(bucket, `seats/${draftId}.json`);
-    if (!seatsData || !Array.isArray(seatsData.seats)) {
-      throw new Error(`applyBuiltBotDecks: seats not found for draft ${draftId}`);
-    }
-    for (const bs of botSeats) {
-      const seat = seatsData.seats[bs.seatIndex];
-      if (seat) {
-        seat.mainboard = bs.mainboard;
-        seat.sideboard = bs.sideboard;
-        seat.name = bs.name;
+    await this.patchSeats(draftId, 'applyBuiltBotDecks', (seats) => {
+      for (const bs of botSeats) {
+        const seat = seats[bs.seatIndex];
+        if (seat) {
+          seat.mainboard = bs.mainboard;
+          seat.sideboard = bs.sideboard;
+          seat.name = bs.name;
+        }
       }
-    }
-    await putObject(bucket, `seats/${draftId}.json`, seatsData);
+    });
 
     // 2. Clear the pending flag and refresh the bot seats' names on the metadata item.
-    const record = await this.getRaw({ PK: this.typedKey(draftId), SK: this.itemType() });
-    if (!record) {
+    const patched = await this.patchRaw({ PK: this.typedKey(draftId), SK: this.itemType() }, (item) => {
+      item.botDecksPending = false;
+      item.botDecksFailed = undefined;
+      item.botDecksPendingSince = undefined;
+      item.dateLastUpdated = Date.now();
+      const seatNames = Array.isArray(item.seatNames) ? [...item.seatNames] : [];
+      for (const bs of botSeats) {
+        seatNames[bs.seatIndex] = bs.name;
+      }
+      item.seatNames = seatNames;
+    });
+
+    if (!patched) {
       throw new Error(`applyBuiltBotDecks: draft item not found for ${draftId}`);
     }
-    record.item.botDecksPending = false;
-    record.item.dateLastUpdated = Date.now();
-    const seatNames = Array.isArray(record.item.seatNames) ? [...record.item.seatNames] : [];
-    for (const bs of botSeats) {
-      seatNames[bs.seatIndex] = bs.name;
-    }
-    record.item.seatNames = seatNames;
+  }
 
-    await this.dynamoClient.send(new PutCommand({ TableName: this.tableName, Item: record }));
+  /**
+   * Mark a draft's bot decks as building: the async pipeline owns them from here until it
+   * writes back. Stamps `botDecksPendingSince` so the read side can give up on a build that
+   * never reports back. No-op if the draft no longer exists.
+   *
+   * Set this *before* enqueueing the build — a build that finishes first would otherwise have
+   * its cleared flag overwritten and leave the draft pending forever.
+   */
+  public async markBotDecksPending(draftId: string): Promise<void> {
+    await this.patchRaw({ PK: this.typedKey(draftId), SK: this.itemType() }, (item) => {
+      item.botDecksPending = true;
+      item.botDecksFailed = undefined;
+      item.botDecksPendingSince = Date.now();
+      item.dateLastUpdated = Date.now();
+    });
   }
 
   /**
@@ -904,14 +981,132 @@ export class DraftDynamoDao extends BaseDynamoDao<Draft, UnhydratedDraft> {
    * the draft no longer exists.
    */
   public async markBotDecksFailed(draftId: string): Promise<void> {
-    const record = await this.getRaw({ PK: this.typedKey(draftId), SK: this.itemType() });
+    await this.patchRaw({ PK: this.typedKey(draftId), SK: this.itemType() }, (item) => {
+      item.botDecksPending = false;
+      item.botDecksFailed = true;
+      item.botDecksPendingSince = undefined;
+      item.dateLastUpdated = Date.now();
+    });
+  }
+
+  /**
+   * Persist one seat's deckbuilder edit, touching ONLY that seat.
+   *
+   * The mirror image of {@link applyBuiltBotDecks}, and for the same reason: a deck save used
+   * to hydrate the whole draft, sit in the user's browser while they built, and then write
+   * every seat plus the bot-deck flags back from that stale copy — reverting bot decks the
+   * pipeline had written in the meantime and re-setting `botDecksPending`, which left the
+   * draft "building…" forever with nothing left in the queue to clear it. So this writes the
+   * edited seat and nothing else, and leaves bot-deck state to the pipeline.
+   *
+   * @returns The saved deck name, so the caller doesn't have to re-derive it.
+   */
+  public async applySeatEdit(
+    draftId: string,
+    seatIndex: number,
+    edit: {
+      mainboard: number[][][];
+      sideboard: number[][][];
+      title: string;
+      body: string;
+      newCards?: { cardID: string; type_line?: string }[];
+    },
+  ): Promise<void> {
+    const bucket = process.env.DATA_BUCKET!;
+    const key = { PK: this.typedKey(draftId), SK: this.itemType() };
+
+    const record = await this.getRaw(key);
     if (!record) {
-      return;
+      throw new DaoError(`applySeatEdit: draft item not found for ${draftId}`, ErrorCode.NOT_FOUND);
     }
-    record.item.botDecksPending = false;
-    record.item.botDecksFailed = true;
-    record.item.dateLastUpdated = Date.now();
-    await this.dynamoClient.send(new PutCommand({ TableName: this.tableName, Item: record }));
+
+    // 1. Append any brand-new cards (added via the deckbuilder's Add Card control) to the
+    //    pool. The client placed them at indices starting at the original pool length, so
+    //    appending in the same order keeps the seat's index grids pointing at them. Nothing
+    //    else appends to a finished draft's pool, so a plain write is fine here.
+    let cards = await this.getCards(draftId);
+    const newCards = (edit.newCards ?? []).filter((card) => card?.cardID);
+    if (newCards.length > 0) {
+      const poolSize = cards.length;
+      cards = [
+        ...cards,
+        ...newCards.map((card, i) => ({
+          cardID: card.cardID,
+          index: poolSize + i,
+          type_line: card.type_line || cardFromId(card.cardID).type || '',
+        })),
+      ];
+      await putObject(bucket, `cardlist/${draftId}.json`, this.stripDetails(cards));
+    }
+
+    // Drop indices that don't resolve to a card (defensive against a stale client view of the
+    // pool) so we never persist orphaned references.
+    const sanitize = (grid: number[][][]): number[][][] =>
+      grid.map((row) => row.map((col) => col.filter((idx) => idx >= 0 && idx < cards.length)));
+    const mainboard = sanitize(edit.mainboard);
+    const sideboard = sanitize(edit.sideboard);
+
+    // A user-supplied deck name lives on the seat as `title`; only fall back to the generated
+    // archetype name when it's blank, so no save ever wipes a name the user typed. Only this
+    // seat's name is recalculated — the other seats' names belong to whoever owns them.
+    let seatName: string | undefined;
+    if (!edit.title) {
+      const colors = this.assessColors(mainboard, cards).join('') || 'C';
+      try {
+        const archetype = await classifyDeck(this.getOracleIds(mainboard, cards));
+        seatName = archetype ? `${colors} ${archetype}` : colors;
+      } catch {
+        seatName = colors;
+      }
+    }
+
+    // 2. Patch only this seat in the current seats blob.
+    await this.patchSeats(draftId, 'applySeatEdit', (seats) => {
+      const seat = seats[seatIndex];
+      if (!seat) {
+        throw new DaoError(`applySeatEdit: seat ${seatIndex} not found for draft ${draftId}`, ErrorCode.NOT_FOUND);
+      }
+      seat.mainboard = mainboard;
+      seat.sideboard = sideboard;
+      seat.title = edit.title;
+      seat.body = edit.body;
+      if (seatName !== undefined) {
+        seat.name = seatName;
+      }
+    });
+
+    // The draft name is derived from the first seat: "{colors} {archetype} {type} of {cube}".
+    // Recover the cube name from the existing draft name to avoid an extra cube read.
+    let cubeName: string | undefined;
+    if (seatName !== undefined && seatIndex === 0) {
+      // Only when the stored name still has the generated shape — a user-supplied one carries
+      // no cube name to recover.
+      cubeName = record.item.name?.includes(' of ') ? record.item.name.split(' of ').pop() : undefined;
+      if (!cubeName || cubeName === 'Unknown Cube') {
+        cubeName = (await this.cubeDao.getById(record.item.cube))?.name || 'Unknown Cube';
+      }
+    }
+
+    // 3. Patch the metadata item: the deck name, this seat's name, and nothing else.
+    await this.patchRaw(key, (item) => {
+      item.complete = true;
+      item.dateLastUpdated = Date.now();
+
+      if (edit.title) {
+        item.name = edit.title;
+        return;
+      }
+      if (seatName === undefined) {
+        return;
+      }
+
+      const seatNames = Array.isArray(item.seatNames) ? [...item.seatNames] : [];
+      seatNames[seatIndex] = seatName;
+      item.seatNames = seatNames;
+      if (seatIndex === 0) {
+        item.name = `${seatName} ${REVERSE_TYPES[item.type]} of ${cubeName}`;
+      }
+    });
   }
 
   /**

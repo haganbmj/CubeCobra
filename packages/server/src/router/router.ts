@@ -5,6 +5,7 @@ import responseTime from 'response-time';
 import { redirect } from 'serverutils/render';
 
 import cloudwatch from '../serverutils/cloudwatch';
+import { clientIp } from '../serverutils/clientIp';
 import { sanitizeHttpBody } from '../serverutils/logging';
 import { Request, Response } from '../types/express';
 import { asyncHandler, wrapHandlers } from './asyncHandler';
@@ -29,7 +30,7 @@ const responseTimer = responseTime((req: express.Request, res: express.Response,
         matchedPath: req.route?.path ?? req.originalUrl, // Get matched route path
         user_id: req.user ? req.user.id : null,
         username: req.user ? req.user.username : null,
-        remoteAddr: req.ip,
+        remoteAddr: clientIp(req),
         body: sanitizeHttpBody(req.body),
         duration: Math.round(time * 100) / 100, //Rounds to 2 decimal places
         status: res.statusCode,

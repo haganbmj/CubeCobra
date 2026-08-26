@@ -43,10 +43,27 @@ process.on('unhandledRejection', (reason: unknown) => {
 // Init app
 const app = express();
 
-// We sit behind the instance's nginx (loopback) and the ALB (private address). Trusting
-// those hops makes req.ip the real client address from X-Forwarded-For, while still
-// ignoring any spoofed entries a caller prepends (req.ip feeds rate limiting and logs).
+// We sit behind Cloudflare, the ALB (private address) and the instance's nginx (loopback).
+// Trusting the two internal hops is what keeps req.protocol correct behind the ALB's TLS
+// termination — several routes build absolute URLs from it, including the Stripe redirects.
+// It deliberately stops short of Cloudflare's edge, which is a public address, so req.ip is
+// the edge and not the visitor: use clientIp() from serverutils/clientIp for the real client
+// address. Logging and every rate limiter go through that helper.
 app.set('trust proxy', ['loopback', 'uniquelocal']);
+
+// One-time eviction of poisoned browser caches from the 2026-08-20 incident, when a
+// zone-wide Cloudflare cache rule briefly rewrote Cache-Control to max-age=31536000 on
+// authenticated HTML. Affected browsers hold another user's rendered page for a year and
+// never revalidate, so no server-side change reaches them -- only this header does.
+// Scoped to "cache": never "cookies" or "*", which would destroy every session. Applies
+// to this origin only, so bundles on the asset host stay cached.
+// Turn CLEAR_SITE_CACHE off (and delete this block) once the window has passed.
+if (process.env.CLEAR_SITE_CACHE === 'true') {
+  app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
+    res.setHeader('Clear-Site-Data', '"cache"');
+    next();
+  });
+}
 
 // gzip middleware
 app.use(compression());

@@ -113,4 +113,9 @@ export default interface Draft {
   // into the DLQ). Lets the client show a failed state instead of polling forever; the bot
   // seats keep their naive layout.
   botDecksFailed?: boolean;
+  // When `botDecksPending` was set. Read-side backstop: a build that never reports back (a
+  // Lambda timeout or crash goes to the DLQ without marking the draft failed) is treated as
+  // failed once this is old enough, so a draft can't sit "building…" forever. Unrelated
+  // writes (a deck save) must not refresh it, which is why it isn't `dateLastUpdated`.
+  botDecksPendingSince?: number;
 }

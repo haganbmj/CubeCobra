@@ -1,4 +1,5 @@
 import { cubeDao, draftDao } from 'dynamo/daos';
+import { resolveBotDeckStatus } from 'serverutils/botDeckStatus';
 import { abbreviate, isCubeViewable } from 'serverutils/cubefn';
 import generateMeta from 'serverutils/meta';
 import { handleRouteError, redirect, render } from 'serverutils/render';
@@ -35,13 +36,16 @@ const handler = async (req: Request, res: Response) => {
     }
 
     const baseUrl = getBaseUrl();
+    // Resolve the bot-deck build state so a build that died without reporting back renders as
+    // failed instead of a banner that spins forever.
+    const botDeckStatus = resolveBotDeckStatus(deck);
     return render(
       req,
       res,
       'CubeDeckbuilderPage',
       {
         cube,
-        initialDeck: deck,
+        initialDeck: { ...deck, botDecksPending: botDeckStatus.pending, botDecksFailed: botDeckStatus.failed },
       },
       {
         title: `${abbreviate(cube.name)} - Deckbuilder`,

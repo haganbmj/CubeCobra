@@ -71,6 +71,9 @@ if (bootstrap && bootstrap === 'true') {
       stripeSecretKey: process.env.STRIPE_SECRET_KEY || '',
       stripePublicKey: process.env.STRIPE_PUBLIC_KEY || '',
       enableBotSecurity: environment === 'production',
+      // Temporary: evicts browser caches poisoned on 2026-08-20. Set back to false once the
+      // affected entries have aged out (~2 weeks) and remove the middleware in index.ts.
+      clearSiteCache: false,
       maintainCubeCardHashes: config.maintainCubeCardHashes,
       r2Endpoint: process.env.R2_ENDPOINT || '',
       r2AccessKeyId: process.env.R2_ACCESS_KEY_ID || '',

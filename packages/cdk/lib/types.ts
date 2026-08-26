@@ -31,6 +31,8 @@ export interface CubeCobraStackParams {
   stripeSecretKey: string;
   stripePublicKey: string;
   enableBotSecurity: boolean;
+  /** Sends Clear-Site-Data: "cache" to evict poisoned browser caches. Temporary; see index.ts. */
+  clearSiteCache: boolean;
   maintainCubeCardHashes: boolean;
   // Cloudflare R2 (S3-compatible) for self-hosted card images + static assets.
   // Empty on stages not yet cut over to R2.

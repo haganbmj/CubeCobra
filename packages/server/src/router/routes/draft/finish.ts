@@ -112,11 +112,11 @@ export const handler = async (req: Request, res: Response) => {
     // Give bot seats a cheap naive layout now so the draft is immediately viewable.
     applyNaiveBotLayout(draft);
 
-    if (queueEnabled) {
-      // Deployed: hand the ML build off to the async bot-deckbuild pipeline (off the request
-      // path). The Lambda replaces the naive decks and clears the flag.
-      draft.botDecksPending = true;
-    } else {
+    // Deployed, the ML build is handed off to the async pipeline below, which replaces the
+    // naive decks and clears the pending flag. That flag is written separately from this draft
+    // save — draftDao.update() deliberately ignores the caller's bot-deck state so a stale copy
+    // can never revert what the pipeline wrote.
+    if (!queueEnabled) {
       // Local dev / self-hosted without the pipeline: build inline so there's no queue to
       // wait on and no banner that never resolves. ML failures keep the naive layout.
       try {
@@ -124,7 +124,6 @@ export const handler = async (req: Request, res: Response) => {
       } catch (err) {
         req.logger.error('Inline bot deckbuild failed; keeping naive layout', err);
       }
-      draft.botDecksPending = false;
     }
 
     //Draft.update changes the draft object, replacing objects with ids, so store these to use after
@@ -139,6 +138,9 @@ export const handler = async (req: Request, res: Response) => {
       // draft would otherwise be stuck pending forever — mark it failed so the client shows a
       // terminal state instead of polling indefinitely.
       try {
+        // Mark pending before enqueueing: a build that finished first would otherwise have its
+        // cleared flag overwritten here, leaving the draft pending with nothing left to clear it.
+        await draftDao.markBotDecksPending(draft.id);
         await writeDeckbuildJob(job);
         await publishBotDeckBuild(draft.id);
       } catch (err) {

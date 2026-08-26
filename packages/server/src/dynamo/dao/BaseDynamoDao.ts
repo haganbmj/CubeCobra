@@ -267,6 +267,91 @@ export abstract class BaseDynamoDao<T extends BaseObject, U extends BaseObject =
   }
 
   /**
+   * Read-modify-write of the *stored* item under optimistic locking.
+   *
+   * For writers that own a couple of attributes rather than the whole entity: `mutate` is
+   * handed the current stored (unhydrated) item and edits it in place, and the put is
+   * conditional on the DynamoVersion that was read, so a concurrent writer can never be
+   * silently clobbered — on a conflict we re-read and re-apply. Keep `mutate` idempotent;
+   * it may run more than once.
+   *
+   * Prefer this over a bare {@link getRaw} + PutCommand: a put that carries the version it
+   * read back unchanged both skips the conflict check and leaves the version un-bumped, which
+   * makes the write invisible to every other writer's optimistic lock.
+   *
+   * @param key - The item's PK/SK.
+   * @param mutate - Applies the change to the stored item in place.
+   * @returns true if the item existed and was patched, false if it doesn't exist.
+   */
+  protected async patchRaw(key: Key, mutate: (item: U) => void): Promise<boolean> {
+    const MAX_RETRIES = 5;
+    for (let attempt = 0; ; attempt++) {
+      const dynamoItem = await this.getRaw(key);
+
+      if (!dynamoItem) {
+        return false;
+      }
+
+      mutate(dynamoItem.item);
+
+      // Legacy rows written before optimistic locking have no DynamoVersion; condition on its
+      // absence so those writes stay guarded too.
+      const expectedVersion: number | undefined = dynamoItem.DynamoVersion;
+      dynamoItem.DynamoVersion = (expectedVersion ?? 0) + 1;
+
+      try {
+        await this.dynamoClient.send(
+          new PutCommand({
+            TableName: this.tableName,
+            Item: dynamoItem,
+            ConditionExpression:
+              expectedVersion === undefined
+                ? 'attribute_exists(PK) AND attribute_exists(SK) AND attribute_not_exists(DynamoVersion)'
+                : 'attribute_exists(PK) AND attribute_exists(SK) AND DynamoVersion = :expectedVersion',
+            ...(expectedVersion === undefined
+              ? {}
+              : { ExpressionAttributeValues: { ':expectedVersion': expectedVersion } }),
+          }),
+        );
+        return true;
+      } catch (e) {
+        const error = e instanceof Error ? e : new Error(String(e));
+
+        if (error.name !== 'ConditionalCheckFailedException') {
+          const code = error instanceof DaoError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR;
+          throw new DaoError(`Error patching item: ${error}`, code, { cause: error, meta: { key } });
+        }
+
+        if (attempt >= MAX_RETRIES - 1) {
+          throw new DaoError(
+            `Optimistic lock failed for ${this.itemType()}: exhausted retries patching ${key.PK}`,
+            ErrorCode.OPTIMISTIC_LOCKING_VERSION_MISMATCH,
+            { cause: error, meta: { key } },
+          );
+        }
+
+        // Exponential backoff with jitter, matching update()'s contention handling.
+        const backoffMs = Math.pow(2, attempt) * 50 + Math.floor(Math.random() * 50);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      }
+    }
+  }
+
+  /**
+   * Hook called with the freshly-read stored item before each update attempt, letting a
+   * subclass carry attributes it does NOT own forward from storage onto the item being
+   * written. Without it, a caller that hydrated the entity, sat on it for a while and then
+   * saved would silently revert any attribute another writer changed in the meantime.
+   *
+   * Runs inside update()'s optimistic-locking retry, so on a conflict it re-runs against the
+   * winning writer's state. Default: no-op.
+   *
+   * @param _stored - The item as currently stored.
+   * @param _item - The item about to be written (mutate this).
+   */
+  protected refreshFromStored(_stored: U, _item: T): void {}
+
+  /**
    * Builds a transaction item that inserts a brand-new item, failing if it
    * already exists. Mirrors {@link putWithOptimisticLocking} but is meant to be
    * passed to {@link transactWrite} so it commits atomically with other writes.
@@ -549,6 +634,10 @@ export abstract class BaseDynamoDao<T extends BaseObject, U extends BaseObject =
       if (!dynamoItem) {
         throw new DaoError('Item not found', ErrorCode.NOT_FOUND);
       }
+
+      // Let the subclass carry attributes it doesn't own forward from what's stored now,
+      // rather than writing back whatever the caller's (possibly stale) copy holds.
+      this.refreshFromStored(dynamoItem.item, item);
 
       try {
         return await this.updateWithOptimisticLocking(item, dynamoItem.DynamoVersion);

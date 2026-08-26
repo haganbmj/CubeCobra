@@ -4,6 +4,7 @@ import { DRAFT_TYPES } from '@utils/datatypes/Draft';
 import { cubeDao, draftDao, userDao } from 'dynamo/daos';
 import { body } from 'express-validator';
 import { ensureAuth } from 'router/middleware';
+import { resolveBotDeckStatus } from 'serverutils/botDeckStatus';
 import { cardFromId, getIdsFromName, getMostReasonable } from 'serverutils/carddb';
 import { addBasics, createPool, CSV_HEADER, exportToMtgo, getBasicsFromCube, writeCard } from 'serverutils/cube';
 import { abbreviate, isCubeEditable, isCubeViewable } from 'serverutils/cubefn';
@@ -649,51 +650,23 @@ export const editDeckHandler = async (req: Request, res: Response) => {
     const { main, side, title, description, seat, newCards } = req.body;
 
     const seatIndex = parseInt(seat || '0', 10);
-    const targetSeat = deck.seats[seatIndex];
-    if (!targetSeat) {
+    if (!deck.seats[seatIndex]) {
       req.flash('danger', 'Invalid seat');
       return redirect(req, res, '/404');
     }
 
-    // Append any brand-new cards (added via the deckbuilder's Add Card control)
-    // to the draft's card pool before the seat's index grids reference them.
-    // The client placed them at indices starting at the original pool length,
-    // and we append in the same order so the indices line up.
-    const parsedNewCards = newCards ? JSON.parse(newCards) : [];
-    for (const newCard of parsedNewCards) {
-      if (!newCard?.cardID) {
-        continue;
-      }
-      const details = cardFromId(newCard.cardID);
-      deck.cards.push({
-        cardID: newCard.cardID,
-        index: deck.cards.length,
-        type_line: details?.type || '',
-        details,
-      } as any);
-    }
-
-    // Drop indices that don't resolve to a card (defensive against a stale
-    // client view of the pool) so we never persist orphaned references.
-    const sanitize = (grid: number[][][]): number[][][] =>
-      grid.map((row) => row.map((col) => col.filter((idx) => idx >= 0 && idx < deck.cards.length)));
-    targetSeat.mainboard = sanitize(JSON.parse(main));
-    targetSeat.sideboard = sanitize(JSON.parse(side));
-    const trimmedTitle = (title || '').trim().substring(0, 100);
-    targetSeat.title = trimmedTitle;
-    (targetSeat as any).body = (description || '').substring(0, 1000);
-
-    deck.complete = true;
-
-    if (trimmedTitle) {
-      // User named their deck — use it and don't let the archetype generator
-      // overwrite it on this save or any later edit.
-      deck.name = trimmedTitle;
-      await draftDao.update(deck, { skipNameUpdate: true });
-    } else {
-      // No name supplied — fall back to the generated archetype name.
-      await draftDao.update(deck);
-    }
+    // Write only this seat. A deck save used to persist the whole hydrated draft, which
+    // reverted bot decks (and re-set botDecksPending) whenever the async bot-deckbuild
+    // pipeline wrote while the user was building — see applySeatEdit.
+    await draftDao.applySeatEdit(deck.id, seatIndex, {
+      mainboard: JSON.parse(main),
+      sideboard: JSON.parse(side),
+      // A user-supplied name wins over the generated archetype name, on this save and on
+      // every later edit.
+      title: (title || '').trim().substring(0, 100),
+      body: (description || '').substring(0, 1000),
+      newCards: newCards ? JSON.parse(newCards) : [],
+    });
 
     req.flash('success', 'Deck saved successfully');
     return redirect(req, res, `/cube/deck/${deck.id}`);
@@ -884,8 +857,13 @@ export const getDeckHandler = async (req: Request, res: Response) => {
     // Strip card details from the draft pool — the client rehydrates from its
     // IndexedDB cache via cardDetailsCache.ts. Saves ~700 KB per response on
     // average ([egress] /cube/deck/:id was ~9% of total prod egress).
+    // Resolve the bot-deck build state so a build that died without reporting back renders as
+    // failed instead of a banner that spins forever.
+    const botDeckStatus = resolveBotDeckStatus(draft);
     const stripped = {
       ...draft,
+      botDecksPending: botDeckStatus.pending,
+      botDecksFailed: botDeckStatus.failed,
       cards: (draft.cards || []).map((c: any) => {
         const { details: _details, ...rest } = c || {};
         return rest;

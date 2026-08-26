@@ -1,5 +1,6 @@
 import rateLimit from 'express-rate-limit';
 import Joi from 'joi';
+import { clientIp } from 'serverutils/clientIp';
 import clientErrors, { ClientErrorReport } from 'serverutils/clientErrors';
 import { userOrIpKey } from 'serverutils/rateLimitKeys';
 
@@ -54,7 +55,7 @@ const handler = async (req: Request, res: Response) => {
         requestId: req.uuid,
         userId: req.user ? req.user.id : null,
         username: req.user ? req.user.username : null,
-        remoteAddr: req.ip,
+        remoteAddr: clientIp(req),
         version: process.env.CUBECOBRA_VERSION,
         receivedAt: new Date().toISOString(),
       });

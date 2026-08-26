@@ -313,6 +313,15 @@ const render = (
       existingTwitterImage.content = fallbackImage;
     }
 
+    // A signed-in render embeds that user's identity, cube list and CSRF token in
+    // reactProps, so it must never be stored by a browser or an intermediary. The
+    // 2026-08-20 incident proved an edge cache will happily keep one if nothing says
+    // otherwise (a Cloudflare rule overrode this in both directions that night, but the
+    // header is still the correct default and stops any other proxy repeating it).
+    if (req.user) {
+      res.setHeader('Cache-Control', 'private, no-store');
+    }
+
     try {
       const theme = (req && req.user && req.user.theme) || 'system';
       const disableAnimations = req && req.user && req.user.disableAnimations;

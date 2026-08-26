@@ -23,6 +23,8 @@ jest.mock('../../../src/dynamo/daos', () => ({
   draftDao: {
     getById: jest.fn(),
     update: jest.fn(),
+    markBotDecksPending: jest.fn(),
+    markBotDecksFailed: jest.fn(),
   },
 }));
 
@@ -287,8 +289,6 @@ describe('Finish Draft', () => {
     expect(draftDao.update).toHaveBeenCalledWith(
       expect.objectContaining({
         complete: true,
-        // Bot decks are handed off to the async pipeline, so the persisted draft is pending.
-        botDecksPending: true,
         seats: [
           expect.objectContaining({
             pickorder: validBody.state.seats[0]!.picks,
@@ -305,6 +305,11 @@ describe('Finish Draft', () => {
         ],
       }),
     );
+
+    // Bot decks are handed off to the async pipeline, so the draft is marked pending — as its
+    // own write, not as part of the draft save, and before anything is enqueued.
+    expect(draftDao.markBotDecksPending).toHaveBeenCalledWith(draft.id);
+    expect((draftDao.update as jest.Mock).mock.calls[0]![0].botDecksPending).toBeUndefined();
 
     // The deckbuild job is written to S3 and the build is enqueued off the request path; no
     // synchronous deckbuild happens.
@@ -442,8 +447,9 @@ describe('Finish Draft', () => {
     expect(draftbots.batchDeckbuild).toHaveBeenCalled();
     expect(writeDeckbuildJob).not.toHaveBeenCalled();
     expect(publishBotDeckBuild).not.toHaveBeenCalled();
+    expect(draftDao.markBotDecksPending).not.toHaveBeenCalled();
     const updated = (draftDao.update as jest.Mock).mock.calls[0]![0];
-    expect(updated.botDecksPending).toBe(false);
+    expect(updated.botDecksPending).toBeUndefined();
   });
 
   it('should handle server errors gracefully', async () => {

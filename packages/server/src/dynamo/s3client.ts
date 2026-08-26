@@ -43,6 +43,53 @@ export const putObject = async (bucket: string, key: string, value: any): Promis
   });
 };
 
+/**
+ * Like {@link getObject}, but also returns the object's ETag so the caller can write it back
+ * with {@link putObjectIfMatch} and detect a concurrent modification. `etag` is undefined when
+ * the object doesn't exist (or couldn't be read), which callers can pass through to mean
+ * "expect no object".
+ */
+export const getObjectWithETag = async (bucket: string, key: string): Promise<{ value: any; etag?: string }> => {
+  try {
+    const res = await s3.getObject({
+      Bucket: bucket,
+      Key: key,
+    });
+
+    return { value: JSON.parse(await res!.Body!.transformToString()), etag: res.ETag };
+  } catch {
+    return { value: null };
+  }
+};
+
+/**
+ * Compare-and-swap write: stores `value` only if the object still has `etag` (or, when `etag`
+ * is undefined, only if the object still doesn't exist). Returns false when the precondition
+ * failed — the caller should re-read and re-apply its change rather than clobbering whoever
+ * wrote in between.
+ *
+ * S3 answers a lost race with 412 PreconditionFailed, and 409 ConditionalRequestConflict when
+ * two conditional writes overlap; both mean "re-read and retry".
+ */
+export const putObjectIfMatch = async (bucket: string, key: string, value: any, etag?: string): Promise<boolean> => {
+  try {
+    await s3.putObject({
+      Bucket: bucket,
+      Key: key,
+      Body: JSON.stringify(value),
+      ...(etag ? { IfMatch: etag } : { IfNoneMatch: '*' }),
+    });
+    return true;
+  } catch (err) {
+    const status = (err as any)?.$metadata?.httpStatusCode;
+    const name = (err as any)?.name;
+    if (status === 412 || status === 409 || name === 'PreconditionFailed' || name === 'ConditionalRequestConflict') {
+      return false;
+    }
+    throw err;
+  }
+};
+
 export const deleteObject = async (bucket: string, key: string): Promise<void> => {
   await s3.deleteObject({
     Bucket: bucket,
