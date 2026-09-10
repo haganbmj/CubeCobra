@@ -107,6 +107,7 @@ export const FIELD_LABELS: Record<string, string> = {
   firstPrintYear: 'first printed',
   keywords: 'keywords',
   board: 'board',
+  quantity: 'quantity in board',
 };
 
 export const fieldLabel = (propertyName: string): string => FIELD_LABELS[propertyName] ?? propertyName;
@@ -152,6 +153,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   standard: 'a standard card',
   supplemental: 'a supplemental card',
   voucher: 'a voucher',
+  singleton: 'a singleton in its board',
   // Land archetypes (is:fetchland, is:shockland, ...).
   bikeland: 'a cycling land',
   cycleland: 'a cycling land',
