@@ -185,6 +185,14 @@ describe('draftStore', () => {
 
     expect(next.state.seats[0]!.picks).toEqual([3, 2, 1]);
     expect(next.state.seats[0]!.trashed).toEqual([9]);
+    // The normalized seat must hold *copies*. Aliasing the store's own arrays would let a
+    // caller mutating `state.seats[0].picks` in place — which `makePick` does — rewrite
+    // `store.picks` behind the reducer's back.
+    expect(next.state.seats[0]!.picks).not.toBe(store.picks);
+    expect(next.state.seats[0]!.trashed).not.toBe(store.trashboard);
+    // And the action's payload is left exactly as the caller passed it.
+    expect(stale.seats[0]!.picks).toEqual([]);
+    expect(stale.seats[0]!.trashed).toEqual([]);
     // Everything else on the payload is taken as given.
     expect(next.state.seats[0]!.pack).toEqual([10]);
     expect(next.state.seats[1]).toEqual({ picks: [4], trashed: [], pack: [12] });
@@ -238,6 +246,48 @@ describe('draftStore', () => {
       trashboard: [],
       picks: [3],
     });
+  });
+
+  it('falls back to the default for a legacy key that is unparseable', () => {
+    // Each of the four non-state keys is tolerated independently: a corrupt one takes the
+    // same default an absent one does, and the rest of the store still builds.
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const state = buildState();
+    const sideboard = setupPicks(1, 8);
+    sideboard[0]![2] = [6];
+    localStorage.setItem('draftstate-abc', JSON.stringify(state));
+    localStorage.setItem('mainboard-abc', 'not json');
+    localStorage.setItem('sideboard-abc', JSON.stringify(sideboard));
+    localStorage.setItem('picks-abc', JSON.stringify([3]));
+
+    expect(draftStoreFromLegacyKeys('abc')).toEqual({
+      state,
+      mainboard: setupPicks(2, 8),
+      sideboard,
+      trashboard: [],
+      picks: [3],
+    });
+    expect(consoleError).toHaveBeenCalled();
+  });
+
+  it('treats an empty legacy value as absent without logging', () => {
+    // `useLocalStorage.readValue` returned the default for `''` (`item ? JSON.parse(item)
+    // : initialValue`) and said nothing. Task 8's reaper walks every draft on every page
+    // load, so a stray empty value must not print once per draft.
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const state = buildState();
+    localStorage.setItem('draftstate-abc', JSON.stringify(state));
+    localStorage.setItem('mainboard-abc', '');
+    localStorage.setItem('picks-abc', '');
+
+    expect(draftStoreFromLegacyKeys('abc')).toEqual({
+      state,
+      mainboard: setupPicks(2, 8),
+      sideboard: setupPicks(1, 8),
+      trashboard: [],
+      picks: [],
+    });
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it('returns null when there is no legacy draft state for the draft', () => {

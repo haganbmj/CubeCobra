@@ -65,7 +65,10 @@ const readLegacyKey = <T>(key: string): T | undefined => {
     return undefined;
   }
 
-  if (raw === null) {
+  // An empty value is treated as absent rather than as a parse failure, matching the
+  // `item ? JSON.parse(item) : initialValue` that `useLocalStorage.readValue` used. Task 8's
+  // reaper reads these on every page load, so a stray `''` must not log once per draft.
+  if (raw === null || raw === '') {
     return undefined;
   }
 
@@ -109,8 +112,12 @@ export const draftReducer = (store: DraftStore, action: DraftAction): DraftStore
       // The incoming state is produced from a closure that may be a render behind, so its
       // first seat's pick order and trash pile are not trustworthy. The reducer's own
       // `picks` and `trashboard` are, and they are what gets POSTed on finish.
+      // The copies matter: handing out `store.picks` itself would make
+      // `state.seats[0].picks` and `store.picks` the same array, so a caller that mutates
+      // the seat in place — as `makePick` does today — would corrupt the store's own
+      // pick order behind the reducer's back.
       const seats = action.state.seats.map((seat, index) =>
-        index === 0 ? { ...seat, picks: store.picks, trashed: store.trashboard } : seat,
+        index === 0 ? { ...seat, picks: [...store.picks], trashed: [...store.trashboard] } : seat,
       );
 
       return { ...store, state: { ...action.state, seats } };
@@ -144,6 +151,10 @@ export const draftReducer = (store: DraftStore, action: DraftAction): DraftStore
         return store;
       }
 
+      // A deliberate, currently unreachable divergence from `dragCardBetweenDeckStacks`,
+      // which compares raw `source.type === target.type`: comparing resolved board keys
+      // treats a `picks`-typed source against a `sideboard` target as same-board. Nothing
+      // constructs `DraftLocation.picks()`, so no reachable call differs.
       const sourceKey = boardKeyFor(source.type);
       const targetKey = boardKeyFor(target.type);
       const [card, remaining] = removeCard(store[sourceKey], source);
