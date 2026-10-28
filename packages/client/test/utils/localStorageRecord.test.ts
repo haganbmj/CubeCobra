@@ -51,6 +51,33 @@ describe('localStorage record layer', () => {
     expect(localStorage.getItem('cc:draft:a')).toBeNull();
   });
 
+  it('returns safely when reaching localStorage itself throws', () => {
+    // Browsers that deny storage — third-party cookies blocked, a sandboxed iframe —
+    // throw a SecurityError from the accessor, before any method can be called.
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get: () => {
+        throw new DOMException('storage is denied', 'SecurityError');
+      },
+    });
+
+    try {
+      expect(() => readRecord('cc:draft:a')).not.toThrow();
+      expect(readRecord('cc:draft:a')).toBeNull();
+      expect(() => writeRecord('cc:draft:a', { picks: [1] })).not.toThrow();
+      expect(() => removeRecord('cc:draft:a')).not.toThrow();
+      // An unreachable store is an expected browser configuration, not an anomaly, so it
+      // must not log on every call.
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(window, 'localStorage', descriptor);
+      }
+    }
+  });
+
   it('swallows a storage write failure', () => {
     // The catch path logs, which would otherwise print to the test output.
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});

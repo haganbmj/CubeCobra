@@ -18,17 +18,36 @@ export interface StoredRecord<T> {
   data: T;
 }
 
-// The client bundle is also rendered server-side, where there is no localStorage at all.
-const storageUnavailable = (): boolean => typeof localStorage === 'undefined';
+/**
+ * Resolves the store, or null if there isn't one we can touch.
+ *
+ * Two separate things can go wrong before a single method is called. The client bundle is
+ * also rendered server-side, where there is no window — and bare `localStorage` is not a
+ * reliable stand-in for that, since Node defines a non-functional global of its own. And
+ * in a browser that denies storage — third-party cookies blocked, a sandboxed iframe —
+ * merely *reading* the accessor throws a SecurityError, so even the guard goes in the try.
+ */
+const getStorage = (): Storage | null => {
+  try {
+    if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+      return null;
+    }
+    return window.localStorage;
+  } catch {
+    // An unreachable store is an expected browser configuration, not an anomaly worth logging.
+    return null;
+  }
+};
 
 export const readRecord = <T>(key: string): StoredRecord<T> | null => {
-  if (storageUnavailable()) {
+  const storage = getStorage();
+  if (storage === null) {
     return null;
   }
 
   let parsed: unknown;
   try {
-    const raw = localStorage.getItem(key);
+    const raw = storage.getItem(key);
     if (raw === null) {
       return null;
     }
@@ -52,13 +71,14 @@ export const readRecord = <T>(key: string): StoredRecord<T> | null => {
 };
 
 export const writeRecord = <T>(key: string, data: T): void => {
-  if (storageUnavailable()) {
+  const storage = getStorage();
+  if (storage === null) {
     return;
   }
 
   try {
     const record: StoredRecord<T> = { v: RECORD_VERSION, t: Date.now(), data };
-    localStorage.setItem(key, JSON.stringify(record));
+    storage.setItem(key, JSON.stringify(record));
   } catch (err) {
     // A full or unavailable store must not break the page that was only caching state.
     console.error(`Failed to write localStorage record ${key}`, err);
@@ -66,12 +86,13 @@ export const writeRecord = <T>(key: string, data: T): void => {
 };
 
 export const removeRecord = (key: string): void => {
-  if (storageUnavailable()) {
+  const storage = getStorage();
+  if (storage === null) {
     return;
   }
 
   try {
-    localStorage.removeItem(key);
+    storage.removeItem(key);
   } catch (err) {
     console.error(`Failed to remove localStorage record ${key}`, err);
   }
