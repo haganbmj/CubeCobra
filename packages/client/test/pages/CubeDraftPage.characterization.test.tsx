@@ -21,7 +21,7 @@ describe('CubeDraftPage characterization', () => {
     resetDraftPageEnvironment();
   });
 
-  it('seeds storage from the draft when nothing is stored', async () => {
+  it('derives state from the draft and writes nothing to storage until the first pick', async () => {
     const harness = await renderDraftPage();
 
     // `useLocalStorage` persists on write, not on read, so nothing is stored until the first pick.
