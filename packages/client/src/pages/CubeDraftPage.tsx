@@ -48,6 +48,16 @@ interface BatchPredictRequest {
   picks: string[];
 }
 
+/**
+ * A selection the user made while bot predictions were still loading. The action has to travel
+ * with the index: once the predictions land, a `pick` is recorded in the pick order and a
+ * `trash` is not.
+ */
+interface PendingPick {
+  packIndex: number;
+  action: 'pick' | 'trash';
+}
+
 const fetchBatchPredict = async (inputs: BatchPredictRequest[]): Promise<PredictResponse> => {
   //Unlike csrfFetch which has a default client time, a fetch like this doesn't.
   const response = await fetch('/api/draftbots/batchpredict', {
@@ -119,7 +129,7 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
   const [showRatings, setShowRatings] = useState(false);
   const [currentPredictions, setCurrentPredictions] = useState<PredictResponse | null>(null);
   const [userPicksInOrder, setUserPicksInOrder] = useLocalStorage<number[]>(`picks-${draft.id}`, []); // Tracks the pick sequencing, managed separately from the mainboard/sideboard state
-  const [pendingPick, setPendingPick] = useState<number | null>(null); // Add state to track the pending pick made during predictionsLoading
+  const [pendingPick, setPendingPick] = useState<PendingPick | null>(null); // Add state to track the pending pick made during predictionsLoading
 
   const { alerts, addAlert } = useAlerts();
 
@@ -501,7 +511,7 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
 
       // Update the board immediately
       if (draftStatus.predictionsLoading) {
-        setPendingPick(source.index);
+        setPendingPick({ packIndex: source.index, action: 'pick' });
 
         const setter = target.type === locations.deck ? setMainboard : setSideboard;
         setter((prev) => {
@@ -596,7 +606,7 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
           }
           return newBoard;
         });
-        setPendingPick(packIndex);
+        setPendingPick({ packIndex, action: 'pick' });
       } else {
         setMainboard((prev) => {
           setUserPicksInOrder((prev) => [cardIndex, ...prev]);
@@ -655,7 +665,7 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
 
       if (draftStatus.predictionsLoading) {
         setTrashboard((prev) => [cardIndex, ...prev]);
-        setPendingPick(packIndex);
+        setPendingPick({ packIndex, action: 'trash' });
       } else {
         setTrashboard((prev) => [cardIndex, ...prev]);
         makePick(packIndex);
@@ -740,7 +750,7 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
       return;
     }
 
-    const packIndex = pendingPick;
+    const { packIndex, action } = pendingPick;
     // Clear pendingPick immediately to prevent race conditions
     setPendingPick(null);
     // Some checks to verify that the pending pick is still valid
@@ -749,7 +759,10 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
     }
 
     const cardIndex = state.seats[0].pack[packIndex];
-    setUserPicksInOrder((prev) => [cardIndex, ...prev]);
+    //A trashed card was never picked, so it must not join the pick order
+    if (action === 'pick') {
+      setUserPicksInOrder((prev) => [cardIndex, ...prev]);
+    }
     if (cardIndex === undefined) {
       return;
     }

@@ -12,9 +12,27 @@
  */
 import DraftLocation from 'drafting/DraftLocation';
 
-import { cardName, renderDraftPage, resetDraftPageEnvironment, SEAT_COUNT, storageKeys } from './draftPageHarness';
+import {
+  cardName,
+  DraftPageHarness,
+  renderDraftPage,
+  resetDraftPageEnvironment,
+  SEAT_COUNT,
+  storageKeys,
+} from './draftPageHarness';
 
 const flatten = (board: number[][][] | null): number[] => (board ?? []).flat(2);
+
+/**
+ * Drains the held prediction queue. Resolving the request a pick is waiting on lets that pick
+ * commit its new state, which in turn fires a fresh ratings fetch — so a single resolve is not
+ * enough to get back to an idle pack. Loop until nothing is outstanding.
+ */
+const settlePredictions = async (harness: DraftPageHarness): Promise<void> => {
+  for (let attempt = 0; attempt < 8 && harness.pendingPredictionCount() > 0; attempt += 1) {
+    await harness.resolvePredictions();
+  }
+};
 
 describe('CubeDraftPage characterization', () => {
   beforeEach(() => {
@@ -175,6 +193,37 @@ describe('CubeDraftPage characterization', () => {
 
     expect(harness.getPicks()).toEqual([0]);
     expect(harness.getMainboard()).toEqual([cardName(0)]);
+  });
+
+  it('does not record a pick when a trash is queued behind predictions', async () => {
+    const harness = await renderDraftPage({ holdPredictions: true });
+
+    // Walk to the pack's trash step, letting each round's predictions land so the picks on the
+    // way there are recorded the ordinary way.
+    await settlePredictions(harness);
+    await harness.dragEnd(DraftLocation.pack(0), DraftLocation.pack(0));
+    await settlePredictions(harness);
+    await harness.dragEnd(DraftLocation.pack(0), DraftLocation.pack(0));
+    // Resolve only the request that second pick is waiting on. Committing its state opens the
+    // trash step and fires a fresh ratings fetch, which stays in flight.
+    await harness.resolvePredictions();
+
+    expect(harness.getPackTitle()).toBe('Pack 1 Pick 3: Trash 1 card');
+    const picksBeforeTrash = harness.getPicks();
+    expect(picksBeforeTrash).toHaveLength(2);
+
+    // So the trash click below lands while predictions are loading and has to be queued.
+    expect(harness.pendingPredictionCount()).toBe(1);
+    const trashed = harness.getPackCards()[0]!;
+
+    await harness.dragEnd(DraftLocation.pack(0), DraftLocation.pack(0));
+    await settlePredictions(harness);
+
+    expect(harness.getTrashboard()).toEqual([trashed]);
+    // A queued trash is still a trash: it must not be recorded as a pick.
+    expect(harness.getPicks()).toEqual(picksBeforeTrash);
+    expect(harness.getMainboard()).not.toContain(trashed);
+    expect(harness.getSideboard()).toEqual([]);
   });
 
   it('posts the accumulated state when the draft is finished', async () => {
