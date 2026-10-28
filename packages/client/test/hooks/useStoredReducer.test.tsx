@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 
 import { useStoredReducer } from 'hooks/useStoredReducer';
-import { readRecord, writeRecord } from 'utils/localStorage/record';
+import { RECORD_VERSION, readRecord, writeRecord } from 'utils/localStorage/record';
 
 interface Counter {
   count: number;
@@ -15,6 +15,7 @@ const reducer = (state: Counter, action: CounterAction): Counter =>
   action.type === 'inc' ? { count: state.count + 1 } : state;
 
 const KEY = 'cc:test:counter';
+const OTHER_KEY = 'cc:test:other-counter';
 
 describe('useStoredReducer', () => {
   beforeEach(() => {
@@ -79,11 +80,29 @@ describe('useStoredReducer', () => {
     const { result } = renderHook(() => useStoredReducer(KEY, reducer, () => ({ count: 0 })));
     act(() => result.current[1]({ type: 'inc' }));
     const persisted = readRecord<Counter>(KEY);
-    expect(persisted).toEqual({ v: expect.any(Number), t: expect.any(Number), data: { count: 1 } });
+    expect(persisted).toEqual({ v: RECORD_VERSION, t: expect.any(Number), data: { count: 1 } });
 
     act(() => result.current[1]({ type: 'noop' }));
 
     expect(readRecord<Counter>(KEY)).toEqual(persisted);
+  });
+
+  it('does not write the previous key\u2019s state under a changed key', () => {
+    writeRecord(OTHER_KEY, { count: 99 });
+    const untouched = readRecord<Counter>(OTHER_KEY);
+    const { result, rerender } = renderHook(
+      ({ storageKey }) => useStoredReducer(storageKey, reducer, () => ({ count: 0 })),
+      { initialProps: { storageKey: KEY } },
+    );
+    act(() => result.current[1]({ type: 'inc' }));
+
+    // `key` is documented as fixed for the hook's lifetime; changing it must not be
+    // destructive. State belongs to the old key, so it has no business being stamped
+    // onto whatever the new key already holds.
+    rerender({ storageKey: OTHER_KEY });
+
+    expect(readRecord<Counter>(OTHER_KEY)).toEqual(untouched);
+    expect(readRecord<Counter>(KEY)?.data).toEqual({ count: 1 });
   });
 
   it('still dispatches when persistence throws', () => {
