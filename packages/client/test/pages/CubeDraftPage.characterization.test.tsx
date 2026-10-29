@@ -14,6 +14,7 @@ import DraftLocation from 'drafting/DraftLocation';
 
 import {
   cardName,
+  DRAFT_RECORD_KEY,
   DraftPageHarness,
   renderDraftPage,
   resetDraftPageEnvironment,
@@ -21,7 +22,7 @@ import {
   storageKeys,
 } from './draftPageHarness';
 
-const flatten = (board: number[][][] | null): number[] => (board ?? []).flat(2);
+const flatten = (board: number[][][] | null | undefined): number[] => (board ?? []).flat(2);
 
 /**
  * Drains the held prediction queue. Resolving the request a pick is waiting on lets that pick
@@ -42,7 +43,8 @@ describe('CubeDraftPage characterization', () => {
   it('derives state from the draft and writes nothing to storage until the first pick', async () => {
     const harness = await renderDraftPage();
 
-    // `useLocalStorage` persists on write, not on read, so nothing is stored until the first pick.
+    // The reducer persists on change, not on read, so nothing is stored until the first pick.
+    expect(window.localStorage.getItem(DRAFT_RECORD_KEY)).toBeNull();
     expect(Object.values(storageKeys).map((key) => window.localStorage.getItem(key))).toEqual([
       null,
       null,
@@ -91,10 +93,48 @@ describe('CubeDraftPage characterization', () => {
 
     expect(harness.getMainboard()).toEqual([cardName(0)]);
     expect(harness.getPicks()).toEqual([0]);
-    expect(flatten(harness.getStored(storageKeys.mainboard))).toEqual([0]);
-    expect(harness.getStored(storageKeys.picks)).toEqual([0]);
+    expect(flatten(harness.getStoredStore()?.mainboard)).toEqual([0]);
+    expect(harness.getStoredStore()?.picks).toEqual([0]);
     // The pack it came from no longer offers it.
     expect(harness.getPackCards()).not.toContain(cardName(0));
+  });
+
+  it('stores the whole draft in one record', async () => {
+    const harness = await renderDraftPage();
+
+    await harness.dragEnd(DraftLocation.pack(0), DraftLocation.pack(0));
+
+    const stored = harness.getStoredStore();
+    expect(stored).not.toBeNull();
+    expect(Object.keys(stored!).sort()).toEqual(['mainboard', 'picks', 'sideboard', 'state', 'trashboard']);
+    expect(stored!.state.seats).toHaveLength(SEAT_COUNT);
+    expect(flatten(stored!.mainboard)).toEqual([0]);
+    expect(flatten(stored!.sideboard)).toEqual([]);
+    expect(stored!.trashboard).toEqual([]);
+    expect(stored!.picks).toEqual([0]);
+
+    // None of the five keys that used to back those values is written any more, and the record
+    // is the only thing this session put in storage.
+    expect(Object.values(storageKeys).map((key) => window.localStorage.getItem(key))).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    expect(window.localStorage.length).toBe(1);
+    expect(window.localStorage.key(0)).toBe(DRAFT_RECORD_KEY);
+  });
+
+  it('drops a dragged pack card into the cell it was dropped on', async () => {
+    const harness = await renderDraftPage();
+
+    // Card 0 is a one-drop creature, so its default placement is row 0, column 1 — the drag
+    // target below is deliberately somewhere else.
+    await harness.dragEnd(DraftLocation.pack(0), DraftLocation.deck(1, 7, 0));
+
+    expect(harness.getMainboardPositions()).toEqual([{ name: cardName(0), row: 1, col: 7, index: 0 }]);
+    expect(harness.getPicks()).toEqual([0]);
   });
 
   it('advances the pack title after a pick', async () => {
@@ -142,9 +182,9 @@ describe('CubeDraftPage characterization', () => {
 
     expect(harness.getMainboard()).toEqual([]);
     expect(harness.getSideboard()).toEqual([cardName(0)]);
-    // Two independent setters, two independent writes — both keys must land.
-    expect(flatten(harness.getStored(storageKeys.mainboard))).toEqual([]);
-    expect(flatten(harness.getStored(storageKeys.sideboard))).toEqual([0]);
+    // One record, one write — both boards must land together.
+    expect(flatten(harness.getStoredStore()?.mainboard)).toEqual([]);
+    expect(flatten(harness.getStoredStore()?.sideboard)).toEqual([0]);
     // Moving between boards does not rewrite the pick order.
     expect(harness.getPicks()).toEqual([0]);
   });
@@ -171,7 +211,7 @@ describe('CubeDraftPage characterization', () => {
       col: 7,
       index: 0,
     });
-    expect(flatten(harness.getStored(storageKeys.mainboard)).sort()).toEqual(
+    expect(flatten(harness.getStoredStore()?.mainboard).sort()).toEqual(
       before.map((entry) => Number(entry.name.replace('Card ', ''))).sort(),
     );
   });
@@ -253,8 +293,8 @@ describe('CubeDraftPage characterization', () => {
 
     expect(request.body.state.seats).toHaveLength(SEAT_COUNT);
     // The posted boards match what is still in storage.
-    expect(flatten(harness.getStored(storageKeys.mainboard))).toEqual(mainboard);
-    expect(harness.getStored(storageKeys.picks)).toEqual(picks);
+    expect(flatten(harness.getStoredStore()?.mainboard)).toEqual(mainboard);
+    expect(harness.getStoredStore()?.picks).toEqual(picks);
     expect(harness.getTrashboard()).toEqual(binned.map((entry) => entry.name).reverse());
   });
 });

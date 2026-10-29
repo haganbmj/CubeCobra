@@ -20,6 +20,8 @@ import Draft from '@utils/datatypes/Draft';
 import { State } from '@utils/datatypes/DraftState';
 
 import DraftLocation from 'drafting/DraftLocation';
+import { DraftStore, draftStoreKey } from 'drafting/draftStore';
+import { readRecord } from 'utils/localStorage/record';
 
 // `mock`-prefixed so babel-plugin-jest-hoist allows the factories below to reference them.
 const mockDndHandlers: {
@@ -94,6 +96,11 @@ export const SEAT_COUNT = 8;
 export const PACKS_PER_SEAT = 2;
 export const CARDS_PER_PACK = 3;
 
+/**
+ * The five flat keys the page used to write, one per `useLocalStorage` atom. The page now
+ * writes a single {@link DRAFT_RECORD_KEY} record instead, so these are kept only so tests
+ * can assert that nothing writes them any more.
+ */
 export const storageKeys = {
   state: `draftstate-${DRAFT_ID}`,
   mainboard: `mainboard-${DRAFT_ID}`,
@@ -101,6 +108,9 @@ export const storageKeys = {
   trashboard: `trashboard-${DRAFT_ID}`,
   picks: `picks-${DRAFT_ID}`,
 };
+
+/** The one record the whole draft is stored under. */
+export const DRAFT_RECORD_KEY = draftStoreKey(DRAFT_ID);
 
 export const cardName = (index: number): string => `Card ${String(index).padStart(2, '0')}`;
 
@@ -248,10 +258,12 @@ export interface DraftPageHarness {
   getMainboardPositions: () => CardPosition[];
   getSideboard: () => string[];
   getSideboardPositions: () => CardPosition[];
-  /** Trashed cards are never rendered; `trashboard-<id>` is the only observable surface. */
+  /** Trashed cards are never rendered; the stored draft record is the only observable surface. */
   getTrashboard: () => string[];
   getPicks: () => number[];
   getStoredDraft: () => State | null;
+  /** The whole stored draft record, or null if the page has not written one yet. */
+  getStoredStore: () => DraftStore | null;
   getStored: (key: string) => any;
   /** Resolves every outstanding `/api/draftbots/batchpredict` call. */
   resolvePredictions: () => Promise<void>;
@@ -361,6 +373,8 @@ export const renderDraftPage = async (options: RenderDraftPageOptions = {}): Pro
     return raw === null ? null : JSON.parse(raw);
   };
 
+  const getStoredStore = (): DraftStore | null => readRecord<DraftStore>(DRAFT_RECORD_KEY)?.data ?? null;
+
   const namesFor = (indices: number[] | null): string[] => (indices ?? []).map((index) => cardName(index));
 
   const playLog: { action: 'pick' | 'trash'; name: string; index: number }[] = [];
@@ -392,9 +406,10 @@ export const renderDraftPage = async (options: RenderDraftPageOptions = {}): Pro
     getMainboardPositions: () => readStacks('deck'),
     getSideboard: () => readStacks('sideboard').map((entry) => entry.name),
     getSideboardPositions: () => readStacks('sideboard'),
-    getTrashboard: () => namesFor(getStored(storageKeys.trashboard)),
-    getPicks: () => getStored(storageKeys.picks) ?? [],
-    getStoredDraft: () => getStored(storageKeys.state),
+    getTrashboard: () => namesFor(getStoredStore()?.trashboard ?? null),
+    getPicks: () => getStoredStore()?.picks ?? [],
+    getStoredDraft: () => getStoredStore()?.state ?? null,
+    getStoredStore,
     getStored,
     pendingPredictionCount: () => pending.length,
     predictRequests: () => predictRequests,

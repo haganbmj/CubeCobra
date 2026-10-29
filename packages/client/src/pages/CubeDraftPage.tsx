@@ -4,7 +4,7 @@ import { DndContext } from '@dnd-kit/core';
 import { isVoucher, makeSubtitle } from '@utils/cardutil';
 import Cube from '@utils/datatypes/Cube';
 import Draft from '@utils/datatypes/Draft';
-import { getCardDefaultRowColumn, getInitialState, setupPicks } from '@utils/draftutil';
+import { getCardDefaultRowColumn } from '@utils/draftutil';
 
 import { Card, CardBody, CardHeader } from 'components/base/Card';
 import Container from 'components/base/Container';
@@ -15,10 +15,11 @@ import P1P1FromPackGenerator from 'components/p1p1/P1P1FromPackGenerator';
 import Pack from 'components/Pack';
 import RenderToRoot from 'components/RenderToRoot';
 import { CSRFContext } from 'contexts/CSRFContext';
-import DraftLocation, { addCard, location, removeCard } from 'drafting/DraftLocation';
+import DraftLocation, { location } from 'drafting/DraftLocation';
 import { locations } from 'drafting/DraftLocation';
+import { draftReducer, draftStoreFromLegacyKeys, draftStoreKey, initialDraftStore } from 'drafting/draftStore';
 import useAlerts, { Alerts } from 'hooks/UseAlerts';
-import useLocalStorage from 'hooks/useLocalStorage';
+import { useStoredReducer } from 'hooks/useStoredReducer';
 import CubeLayout from 'layouts/CubeLayout';
 import MainLayout from 'layouts/MainLayout';
 import { trackEvent } from 'utils/analytics';
@@ -121,14 +122,17 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
 
   // Draft State
   // These reflect the current state of the draft objects, including the cards in the pack, the picks made, and the ratings for each card.
-  const [state, setState] = useLocalStorage(`draftstate-${draft.id}`, getInitialState(draft));
-  const [mainboard, setMainboard] = useLocalStorage(`mainboard-${draft.id}`, setupPicks(2, 8));
-  const [sideboard, setSideboard] = useLocalStorage(`sideboard-${draft.id}`, setupPicks(1, 8));
-  const [trashboard, setTrashboard] = useLocalStorage<number[]>(`trashboard-${draft.id}`, []);
+  // One record, one reducer: every half of an update lands together, so the pick order can no
+  // longer drift from the boards it describes.
+  const [store, dispatch] = useStoredReducer(
+    draftStoreKey(draft.id),
+    draftReducer,
+    () => draftStoreFromLegacyKeys(draft.id) ?? initialDraftStore(draft),
+  );
+  const { state, mainboard, sideboard, trashboard, picks } = store;
   const [ratings, setRatings] = useState<number[]>([]);
   const [showRatings, setShowRatings] = useState(false);
   const [currentPredictions, setCurrentPredictions] = useState<PredictResponse | null>(null);
-  const [userPicksInOrder, setUserPicksInOrder] = useLocalStorage<number[]>(`picks-${draft.id}`, []); // Tracks the pick sequencing, managed separately from the mainboard/sideboard state
   const [pendingPick, setPendingPick] = useState<PendingPick | null>(null); // Add state to track the pending pick made during predictionsLoading
 
   const { alerts, addAlert } = useAlerts();
@@ -147,28 +151,25 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
   const { csrfFetch } = useContext(CSRFContext);
 
   const getLocationReferences = useCallback(
-    (type: location): { board: any[][][]; setter: React.Dispatch<React.SetStateAction<any[][][]>> } => {
+    (type: location): any[][][] => {
       if (type === locations.deck) {
-        return {
-          board: mainboard,
-          setter: setMainboard,
-        };
+        return mainboard;
       } else {
-        return {
-          board: sideboard,
-          setter: setSideboard,
-        };
+        return sideboard;
       }
     },
-    [mainboard, setMainboard, setSideboard, sideboard],
+    [mainboard, sideboard],
   );
 
   const endDraft = useCallback(async () => {
     setDraftStatus((prev) => ({ ...prev, loading: true }));
 
+    // Built from the reducer's own `picks`/`trashboard` rather than from `state.seats[0]`:
+    // a pick is recorded before `makePick` dispatches the state that follows it, so the seat
+    // is a pick behind until that dispatch lands.
     const draftState = {
       ...state,
-      seats: [{ ...state.seats[0], picks: userPicksInOrder, trashed: trashboard }, ...state.seats.slice(1)],
+      seats: [{ ...state.seats[0], picks, trashed: trashboard }, ...state.seats.slice(1)],
     };
 
     try {
@@ -202,7 +203,7 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
       );
       setDraftStatus((prev) => ({ ...prev, loading: false, draftCompleted: false }));
     }
-  }, [csrfFetch, draft.id, mainboard, userPicksInOrder, sideboard, state, setDraftStatus, trashboard, addAlert]);
+  }, [csrfFetch, draft.id, mainboard, picks, sideboard, state, setDraftStatus, trashboard, addAlert]);
 
   // Helper to get oracle_ids from a card, expanding vouchers to sub-card oracle_ids
   const getCardOracleIds = useCallback(
@@ -290,10 +291,8 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
         return;
       }
 
-      if (currentStep.action.includes('pick')) {
-        // Most recent pick is already in this data at this point
-        newState.seats[0].picks = userPicksInOrder;
-      }
+      // The reducer owns the pick order: `replaceState` writes its own `picks`/`trashboard`
+      // into seat 0, so nothing is copied in from a closure here.
 
       // if amount is more than 1
       if (currentStep.amount && currentStep.amount > 1) {
@@ -406,9 +405,7 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
       if (nextStep.action === 'endpack') {
         // we open the next pack or end the draft
         if (draft.InitialState && state.pack === draft.InitialState[0].length) {
-          newState.seats[0].picks = userPicksInOrder;
-          newState.seats[0].trashed = trashboard;
-          setState(newState);
+          dispatch({ type: 'replaceState', state: newState });
           setDraftStatus((prev) => ({ ...prev, loading: false, draftCompleted: true }));
           return;
         }
@@ -467,20 +464,10 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
         await getPredictions(request);
       }
 
-      setState(newState);
+      dispatch({ type: 'replaceState', state: newState });
       setDraftStatus((prev) => ({ ...prev, loading: false }));
     },
-    [
-      state,
-      setState,
-      currentPredictions,
-      draft.cards,
-      draft.seats.length,
-      draft.InitialState,
-      getPredictions,
-      userPicksInOrder,
-      trashboard,
-    ],
+    [state, dispatch, currentPredictions, draft.cards, draft.seats.length, draft.InitialState, getPredictions],
   );
 
   // Filter out any indices that don't resolve to a card so downstream renderers never
@@ -506,40 +493,20 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
       const cardIndex = state.seats[0].pack[source.index];
       if (cardIndex === undefined || !draft.cards[cardIndex]) return;
 
-      // For vouchers, expand into their contained cards instead of placing the voucher itself
-      const boardEntries = expandPickForBoard(cardIndex);
+      // For vouchers, expand into their contained cards instead of placing the voucher itself.
+      // Use drag target's row/col for the first card, default placement for the rest.
+      const boardEntries = expandPickForBoard(cardIndex).map((entry, index) =>
+        index === 0 ? { ...entry, row: target.row, col: target.col } : entry,
+      );
+      const board = target.type === locations.deck ? 'deck' : 'sideboard';
 
       // Update the board immediately
       if (draftStatus.predictionsLoading) {
         setPendingPick({ packIndex: source.index, action: 'pick' });
 
-        const setter = target.type === locations.deck ? setMainboard : setSideboard;
-        setter((prev) => {
-          const newBoard = prev.map((r) => r.map((c) => [...c]));
-          for (const entry of boardEntries) {
-            // Use drag target's row/col for the first card, default placement for the rest
-            if (entry === boardEntries[0]) {
-              newBoard[target.row][target.col].push(entry.cardIndex);
-            } else {
-              newBoard[entry.row][entry.col].push(entry.cardIndex);
-            }
-          }
-          return newBoard;
-        });
+        dispatch({ type: 'pickToBoard', board, entries: boardEntries });
       } else {
-        setUserPicksInOrder((prev) => [cardIndex, ...prev]);
-        const setter = target.type === locations.deck ? setMainboard : setSideboard;
-        setter((prev) => {
-          const newBoard = prev.map((r) => r.map((c) => [...c]));
-          for (const entry of boardEntries) {
-            if (entry === boardEntries[0]) {
-              newBoard[target.row][target.col].push(entry.cardIndex);
-            } else {
-              newBoard[entry.row][entry.col].push(entry.cardIndex);
-            }
-          }
-          return newBoard;
-        });
+        dispatch({ type: 'pickToBoard', board, entries: boardEntries, pick: cardIndex });
 
         // Make the actual pick after the board update
         makePick(source.index);
@@ -551,31 +518,17 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
       makePick,
       pendingPick,
       setPendingPick,
-      setMainboard,
-      setSideboard,
+      dispatch,
       state.seats,
       expandPickForBoard,
-      setUserPicksInOrder,
     ],
   );
 
   const dragCardBetweenDeckStacks = useCallback(
     (source: DraftLocation, target: DraftLocation) => {
-      const { board: sourceBoard, setter: sourceSetter } = getLocationReferences(source.type);
-
-      //Moving within the same DeckStack
-      if (source.type === target.type) {
-        const [card, newCards] = removeCard(sourceBoard, source);
-        sourceSetter(addCard(newCards, target, card));
-      } else {
-        const { board: targetBoard, setter: targetSetter } = getLocationReferences(target.type);
-        const [card, newCards] = removeCard(sourceBoard, source);
-        //Add card to the target, then update the source with the cards minus the moved card
-        targetSetter(addCard(targetBoard, target, card));
-        sourceSetter(newCards);
-      }
+      dispatch({ type: 'moveCard', source, target });
     },
-    [getLocationReferences],
+    [dispatch],
   );
 
   // Clicking on a card in the pack adds it to mainboard and sets it as pending pick if necessary
@@ -599,37 +552,15 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
       const boardEntries = expandPickForBoard(cardIndex);
 
       if (draftStatus.predictionsLoading) {
-        setMainboard((prev) => {
-          const newBoard = prev.map((r) => r.map((c) => [...c]));
-          for (const entry of boardEntries) {
-            newBoard[entry.row][entry.col].push(entry.cardIndex);
-          }
-          return newBoard;
-        });
+        dispatch({ type: 'pickToBoard', board: 'deck', entries: boardEntries });
         setPendingPick({ packIndex, action: 'pick' });
       } else {
-        setMainboard((prev) => {
-          setUserPicksInOrder((prev) => [cardIndex, ...prev]);
-          const newBoard = prev.map((r) => r.map((c) => [...c]));
-          for (const entry of boardEntries) {
-            newBoard[entry.row][entry.col].push(entry.cardIndex);
-          }
-          return newBoard;
-        });
+        dispatch({ type: 'pickToBoard', board: 'deck', entries: boardEntries, pick: cardIndex });
 
         makePick(packIndex);
       }
     },
-    [
-      state.seats,
-      draft.cards,
-      makePick,
-      draftStatus.predictionsLoading,
-      setMainboard,
-      setPendingPick,
-      setUserPicksInOrder,
-      expandPickForBoard,
-    ],
+    [state.seats, draft.cards, makePick, draftStatus.predictionsLoading, dispatch, setPendingPick, expandPickForBoard],
   );
 
   /*
@@ -640,7 +571,7 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
   const clickDeckStack = useCallback(
     (source: DraftLocation) => {
       //Determine the card which was clicked in the board, so we can calculate its standard row/col destination
-      const { board: sourceBoard } = getLocationReferences(source.type);
+      const sourceBoard = getLocationReferences(source.type);
       const cardIndex = sourceBoard[source.row][source.col][source.index];
       const card = draft.cards[cardIndex];
       const { row, col } = getCardDefaultRowColumn(card);
@@ -648,7 +579,7 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
       const targetLocation = source.type === locations.deck ? locations.sideboard : locations.deck;
       //The sideboard only has one row, unlike the deck with has 1 row for creatures and 1 for non-creatures
       const targetRow = targetLocation === locations.sideboard ? 0 : row;
-      const { board: targetBoard } = getLocationReferences(targetLocation);
+      const targetBoard = getLocationReferences(targetLocation);
 
       //The card should be added to the end of the stack of cards at the grid position (row/col). Be extra careful
       //with the boards (using .? operator) even though they are pre-populated via setupPicks() at the top
@@ -664,14 +595,14 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
       if (cardIndex === undefined || !draft.cards[cardIndex]) return;
 
       if (draftStatus.predictionsLoading) {
-        setTrashboard((prev) => [cardIndex, ...prev]);
+        dispatch({ type: 'trashPick', cardIndex });
         setPendingPick({ packIndex, action: 'trash' });
       } else {
-        setTrashboard((prev) => [cardIndex, ...prev]);
+        dispatch({ type: 'trashPick', cardIndex });
         makePick(packIndex);
       }
     },
-    [state.seats, draft.cards, draftStatus.predictionsLoading, setTrashboard, makePick],
+    [state.seats, draft.cards, draftStatus.predictionsLoading, dispatch, makePick],
   );
 
   const onMoveCard = useCallback(
@@ -761,7 +692,7 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
     const cardIndex = state.seats[0].pack[packIndex];
     //A trashed card was never picked, so it must not join the pick order
     if (action === 'pick') {
-      setUserPicksInOrder((prev) => [cardIndex, ...prev]);
+      dispatch({ type: 'recordPick', cardIndex });
     }
     if (cardIndex === undefined) {
       return;
@@ -781,7 +712,7 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
     state.seats,
     draft.cards,
     setPendingPick,
-    setUserPicksInOrder,
+    dispatch,
   ]);
 
   // Add a useEffect to handle ending the draft
