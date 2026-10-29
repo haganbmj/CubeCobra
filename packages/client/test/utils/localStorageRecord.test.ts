@@ -42,6 +42,21 @@ describe('localStorage record layer', () => {
     expect(readRecord('cc:draft:a')).toBeNull();
   });
 
+  it('returns null for a record with no data', () => {
+    // A well-formed envelope around nothing would otherwise read as a record whose `data` is
+    // `undefined`, which every caller destructures — and which the reaper would not clean up,
+    // because the read did not fail. The page would be unrecoverable on every load.
+    localStorage.setItem('cc:draft:a', '{"v":1,"t":1}');
+
+    expect(readRecord('cc:draft:a')).toBeNull();
+  });
+
+  it('round-trips a stored null without mistaking it for an absent record', () => {
+    writeRecord<number[] | null>('cc:draft:a', null);
+
+    expect(readRecord<number[] | null>('cc:draft:a')).toEqual({ v: RECORD_VERSION, t: expect.any(Number), data: null });
+  });
+
   it('removes a record', () => {
     writeRecord('cc:draft:a', { picks: [1] });
 

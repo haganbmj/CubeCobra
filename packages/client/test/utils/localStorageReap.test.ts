@@ -93,6 +93,63 @@ describe('localStorage reaper', () => {
     expect(consoleError).toHaveBeenCalled();
   });
 
+  it('keeps a record written by a newer schema version', () => {
+    // The day RECORD_VERSION is bumped, the older bundle a rollback restores must not delete
+    // the newer bundle's records. "Not ours to interpret" is the same rule that protects a
+    // key no family claims — and deleting here would defeat the versioning outright.
+    localStorage.setItem('cc:draft:abc', JSON.stringify({ v: RECORD_VERSION + 1, t: T, data: { picks: [1] } }));
+
+    const result = reapLocalStorage(T + 29 * DAY);
+
+    expect(localStorage.getItem('cc:draft:abc')).not.toBeNull();
+    expect(result.removed).not.toContain('cc:draft:abc');
+  });
+
+  it('still reaps a newer-schema record once its own ttl expires', () => {
+    // Kept is not the same as immortal: it is judged on the `t` it carries, like any record.
+    localStorage.setItem('cc:draft:abc', JSON.stringify({ v: RECORD_VERSION + 1, t: T, data: { picks: [1] } }));
+
+    const result = reapLocalStorage(T + 31 * DAY);
+
+    expect(localStorage.getItem('cc:draft:abc')).toBeNull();
+    expect(result.removed).toContain('cc:draft:abc');
+  });
+
+  it('does not migrate over a record written by a newer schema version', () => {
+    localStorage.setItem('cc:draft:abc', JSON.stringify({ v: RECORD_VERSION + 1, t: T, data: { picks: [99] } }));
+    seedLegacyDraftAbc();
+
+    const result = reapLocalStorage(T);
+
+    expect(JSON.parse(localStorage.getItem('cc:draft:abc')!)).toEqual({
+      v: RECORD_VERSION + 1,
+      t: T,
+      data: { picks: [99] },
+    });
+    expect(result.migrated).toEqual([]);
+  });
+
+  it('removes a record carrying no usable write time', () => {
+    // Nothing can date it, so leaving it in place would make it immortal.
+    localStorage.setItem('cc:draft:abc', JSON.stringify({ v: RECORD_VERSION, data: { picks: [1] } }));
+
+    const result = reapLocalStorage(T);
+
+    expect(localStorage.getItem('cc:draft:abc')).toBeNull();
+    expect(result.removed).toContain('cc:draft:abc');
+  });
+
+  it('removes a record from a schema version older than this one', () => {
+    // Backwards is residue, not data to protect: no reader in this bundle or a later one
+    // will ever interpret it.
+    localStorage.setItem('cc:draft:abc', JSON.stringify({ v: RECORD_VERSION - 1, t: T, data: { picks: [1] } }));
+
+    const result = reapLocalStorage(T);
+
+    expect(localStorage.getItem('cc:draft:abc')).toBeNull();
+    expect(result.removed).toContain('cc:draft:abc');
+  });
+
   it('removes a puzzle key whose date is past the ttl', () => {
     localStorage.setItem('manamatrix-2026-01-01', '{"guesses":[]}');
 

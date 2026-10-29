@@ -67,6 +67,13 @@ export const readRecord = <T>(key: string): StoredRecord<T> | null => {
     return null;
   }
 
+  // A well-formed envelope around nothing is not a record. Returning one would hand every
+  // caller `data: undefined` to destructure, and — because the read did not fail — the
+  // reaper would leave it in place, so the failure would repeat on every load.
+  if (!('data' in record)) {
+    return null;
+  }
+
   return { v: record.v, t: record.t, data: record.data as T };
 };
 

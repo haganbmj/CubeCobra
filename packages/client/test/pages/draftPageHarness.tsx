@@ -20,7 +20,7 @@ import Draft from '@utils/datatypes/Draft';
 import { State } from '@utils/datatypes/DraftState';
 
 import DraftLocation from 'drafting/DraftLocation';
-import { DraftStore, draftStoreKey } from 'drafting/draftStore';
+import { DraftStore, draftStoreKey, initialDraftStore } from 'drafting/draftStore';
 import { readRecord } from 'utils/localStorage/record';
 
 // `mock`-prefixed so babel-plugin-jest-hoist allows the factories below to reference them.
@@ -111,6 +111,24 @@ export const storageKeys = {
 
 /** The one record the whole draft is stored under. */
 export const DRAFT_RECORD_KEY = draftStoreKey(DRAFT_ID);
+
+/**
+ * A store spread back across the five flat keys, shaped for `RenderDraftPageOptions.storage`.
+ *
+ * This is what a draft started on the previous bundle looks like on disk: five keys, no
+ * record. Seeding it is the only way to exercise the page's legacy-seed path, which is also
+ * the path the reaper depends on when a migration write fails and it keeps these keys alive.
+ */
+export const legacyStorageFor = (store: DraftStore): Record<string, unknown> => ({
+  [storageKeys.state]: store.state,
+  [storageKeys.mainboard]: store.mainboard,
+  [storageKeys.sideboard]: store.sideboard,
+  [storageKeys.trashboard]: store.trashboard,
+  [storageKeys.picks]: store.picks,
+});
+
+/** The store a draft begins from, for seeding legacy keys that describe an unplayed draft. */
+export const freshStoreFor = (draft: Draft): DraftStore => initialDraftStore(draft);
 
 export const cardName = (index: number): string => `Card ${String(index).padStart(2, '0')}`;
 

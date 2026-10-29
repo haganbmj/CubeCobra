@@ -108,8 +108,10 @@ const ISO_DATE = '\\d{4}-\\d{2}-\\d{2}';
  * `legacy`. `familyOf` returns the first match, so if a pattern were ever widened by accident
  * the ambiguity would resolve towards keeping data rather than deleting it.
  *
- * No two patterns below claim the same key today — the registry test proves every sample key
- * matches exactly one family — so this ordering is a safety net, not a load-bearing rule.
+ * That ordering is load-bearing, not decorative — it is the only thing that decides which way
+ * an accidental overlap falls, and the registry test asserts that every `permanent` family
+ * stays ahead of every family with a lifetime. No two patterns below claim the same key today,
+ * which the same test also proves; the ordering is what protects the day one of them does.
  */
 export const FAMILIES: KeyFamily[] = [
   // ---------------------------------------------------------------------------------------
@@ -241,7 +243,8 @@ export const FAMILIES: KeyFamily[] = [
   // ---------------------------------------------------------------------------------------
   // The five flat keys cc:draft: replaces. Copied, not deleted, at migration, so that a
   // rollback to the previous bundle finds in-progress drafts where it left them. They are
-  // removed by the grace rule once the rollback window has passed.
+  // removed by the grace rule once the rollback window has passed — or by the draft page as
+  // soon as the draft is submitted, since no bundle should resume a draft the server owns.
   // ---------------------------------------------------------------------------------------
   prefixFamily(
     'draftstate-',
@@ -293,3 +296,14 @@ export const familyOf = (key: string): KeyFamily | undefined => FAMILIES.find((f
  * iterates these to find draft ids that have flat keys but no `cc:draft:` record yet.
  */
 export const LEGACY_DRAFT_FAMILY_IDS: string[] = ['draftstate-', 'mainboard-', 'sideboard-', 'trashboard-', 'picks-'];
+
+/**
+ * The five legacy keys belonging to one draft id.
+ *
+ * Built from the families declared above rather than from the prefixes spelled out a second
+ * time, so a caller that clears these keys and the reaper that claims them cannot drift.
+ */
+export const legacyDraftKeys = (draftId: string): string[] =>
+  LEGACY_DRAFT_FAMILY_IDS.map((id) => FAMILIES.find((family) => family.id === id)?.key(draftId)).filter(
+    (key): key is string => key !== undefined,
+  );

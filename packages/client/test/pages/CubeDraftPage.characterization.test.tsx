@@ -10,13 +10,18 @@
  *
  * @jest-environment-options {"url": "http://localhost/draft/deckbuilder/draft-under-test"}
  */
+import { cleanup } from '@testing-library/react';
+
 import DraftLocation from 'drafting/DraftLocation';
 
 import {
+  buildDraft,
   cardName,
   DRAFT_ID,
   DRAFT_RECORD_KEY,
   DraftPageHarness,
+  freshStoreFor,
+  legacyStorageFor,
   renderDraftPage,
   resetDraftPageEnvironment,
   SEAT_COUNT,
@@ -377,5 +382,84 @@ describe('CubeDraftPage characterization', () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  it('clears the legacy draft keys once the draft is submitted', async () => {
+    const draft = buildDraft();
+    const harness = await renderDraftPage({ draft, storage: legacyStorageFor(freshStoreFor(draft)) });
+
+    await harness.dragEnd(DraftLocation.pack(0), DraftLocation.pack(0));
+    // Both have to exist first, or "they are gone afterwards" proves nothing.
+    expect(window.localStorage.getItem(DRAFT_RECORD_KEY)).not.toBeNull();
+    expect(Object.values(storageKeys).map((key) => window.localStorage.getItem(key))).not.toContain(null);
+
+    await harness.finishDraft();
+    await harness.flush();
+
+    // The redirect this submit performs is itself the next page load, and the reaper migrates
+    // any legacy draft id that has no record. Leaving these behind would hand that load the
+    // pre-upgrade state and recreate the record the submit just removed.
+    expect(window.localStorage.getItem(DRAFT_RECORD_KEY)).toBeNull();
+    expect(Object.values(storageKeys).map((key) => window.localStorage.getItem(key))).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it('keeps the legacy draft keys when finishing fails', async () => {
+    // The page logs the failure it is being asked to produce; keep the suite output clean.
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const draft = buildDraft();
+      const harness = await renderDraftPage({
+        draft,
+        failFinish: true,
+        storage: legacyStorageFor(freshStoreFor(draft)),
+      });
+
+      await harness.finishDraft();
+      await harness.flush();
+
+      // The server does not own this draft, so neither copy of it may be destroyed.
+      expect(harness.getStoredStore()).not.toBeNull();
+      expect(Object.values(storageKeys).map((key) => window.localStorage.getItem(key))).not.toContain(null);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('resumes a draft that has only the five legacy keys', async () => {
+    // The mid-draft store is captured from the page itself rather than hand-built, then
+    // replayed as the flat keys a pre-record bundle would have left behind.
+    const draft = buildDraft();
+    const played = await renderDraftPage({ draft });
+    await played.dragEnd(DraftLocation.pack(0), DraftLocation.pack(0));
+    const resumeFrom = played.getStoredStore();
+    expect(resumeFrom).not.toBeNull();
+    expect(resumeFrom!.picks).toEqual([0]);
+
+    cleanup();
+    window.localStorage.clear();
+
+    const harness = await renderDraftPage({ draft, storage: legacyStorageFor(resumeFrom!) });
+
+    // No record exists, so the legacy keys are the only place that pick could have come from.
+    expect(window.localStorage.getItem(DRAFT_RECORD_KEY)).toBeNull();
+    expect(harness.getPackTitle()).toBe('Pack 1 Pick 2: Pick 1 card');
+    expect(harness.getMainboard()).toEqual([cardName(0)]);
+    expect(harness.getPackCards()).not.toContain(cardName(0));
+
+    // The resumed pick is counted, not restarted: the next pick is the second one.
+    await harness.dragEnd(DraftLocation.pack(0), DraftLocation.pack(0));
+    expect(harness.getPicks()).toHaveLength(2);
+    expect(harness.getPicks()[1]).toBe(0);
+
+    // The reaper deliberately keeps these alive for a week after migrating; resuming from
+    // them is not what deletes them.
+    expect(Object.values(storageKeys).map((key) => window.localStorage.getItem(key))).not.toContain(null);
   });
 });

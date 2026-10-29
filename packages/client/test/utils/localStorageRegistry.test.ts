@@ -189,4 +189,15 @@ describe('localStorage key registry', () => {
       expect(family?.expiry).toEqual({ kind: 'grace', ttlDays: 7 });
     }
   });
+
+  it('declares every permanent family ahead of every deleting one', () => {
+    // `familyOf` returns the first match, so this ordering is what decides an ambiguity if a
+    // pattern is ever widened by accident: towards keeping data rather than deleting it. A
+    // reorder that interleaved the two would silently flip that direction.
+    const deleting = FAMILIES.findIndex((family) => family.expiry !== 'permanent');
+    const stragglers = FAMILIES.slice(deleting).filter((family) => family.expiry === 'permanent');
+
+    expect(deleting).toBeGreaterThan(0);
+    expect(stragglers.map((family) => family.id)).toEqual([]);
+  });
 });

@@ -3,6 +3,8 @@ import type { State } from '@utils/datatypes/DraftState';
 import { getInitialState, setupPicks } from '@utils/draftutil';
 
 import DraftLocation, { addCard, location, locations, removeCard } from 'drafting/DraftLocation';
+import { removeRecord } from 'utils/localStorage/record';
+import { legacyDraftKeys } from 'utils/localStorage/registry';
 
 /**
  * Everything a draft in progress needs to survive a reload, in one record.
@@ -106,6 +108,26 @@ export const draftStoreFromLegacyKeys = (draftId: string): DraftStore | null => 
   };
 };
 
+/**
+ * Drop the five pre-record keys for a draft.
+ *
+ * Migration copies rather than moves, so a rollback to the previous bundle finds an
+ * in-progress draft where it left it. That argument stops applying the moment the server
+ * takes ownership: no bundle, old or new, should resume a draft that has already been
+ * submitted. And leaving them behind is not inert — the redirect that follows a submit is
+ * itself the next page load, and the reaper migrates any legacy draft id that has no record,
+ * so the finished draft would be rebuilt from its pre-submit keys moments after being cleared.
+ *
+ * Key names come from the registry's own families, so this and the reaper cannot drift apart.
+ */
+export const clearLegacyDraftKeys = (draftId: string): void => {
+  for (const key of legacyDraftKeys(draftId)) {
+    // Not a record, but the same swallow-the-failure removal: a store that refuses the
+    // delete must not break the page that only finished a draft.
+    removeRecord(key);
+  }
+};
+
 export const draftReducer = (store: DraftStore, action: DraftAction): DraftStore => {
   switch (action.type) {
     case 'replaceState': {
@@ -113,9 +135,10 @@ export const draftReducer = (store: DraftStore, action: DraftAction): DraftStore
       // first seat's pick order and trash pile are not trustworthy. The reducer's own
       // `picks` and `trashboard` are, and they are what gets POSTed on finish.
       // The copies matter: handing out `store.picks` itself would make
-      // `state.seats[0].picks` and `store.picks` the same array, so a caller that mutates
-      // the seat in place — as `makePick` does today — would corrupt the store's own
-      // pick order behind the reducer's back.
+      // `state.seats[0].picks` and `store.picks` the same array, so any caller that mutated
+      // the seat in place would corrupt the store's own pick order behind the reducer's
+      // back. `makePick` deep-copies today, but that is the caller's choice to reverse; the
+      // reducer does not get to assume it.
       const seats = action.state.seats.map((seat, index) =>
         index === 0 ? { ...seat, picks: [...store.picks], trashed: [...store.trashboard] } : seat,
       );

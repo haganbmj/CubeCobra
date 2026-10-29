@@ -29,7 +29,9 @@ import { familyOf, LEGACY_DRAFT_FAMILY_IDS } from 'utils/localStorage/registry';
  *
  * The legacy keys are **copied, not deleted**. Leaving them costs a week of duplicated storage
  * and buys the rollback case — if the deploy is rolled back, the old bundle finds its keys
- * where it left them. They are cleaned up by the `grace` rule once the window has passed.
+ * where it left them. They are cleaned up by the `grace` rule once the window has passed, or
+ * sooner by the draft page itself: finishing a draft hands it to the server, and `endDraft`
+ * drops both the record and the legacy keys so this pass cannot rebuild one from the other.
  *
  * Nothing in here throws. A failure to tidy storage must never stop a page rendering.
  */
@@ -165,6 +167,56 @@ const writeMigratedRecord = (key: string, store: DraftStore, now: number): boole
   }
 };
 
+/**
+ * The `v`/`t` header of a record, read without interpreting `data`.
+ *
+ * `readRecord` deliberately collapses absent, corrupt, and foreign-version into a single
+ * `null`. That is the right contract for a reader — none of the three gives it anything to
+ * use — but it is the wrong one here, because the reaper's answer to `null` is "delete". A
+ * record written by a *newer* bundle would then be destroyed by the older bundle a rollback
+ * restores, defeating the versioning that exists to make that rollback safe.
+ *
+ * - `readable` — this schema version; the ordinary case.
+ * - `future` — a higher version number. Not ours to interpret, so not ours to delete either,
+ *   the same rule the registry applies to a key no family claims. It still carries a `t`, so
+ *   it ages out like anything else and keeping it can never make it permanent.
+ * - `unusable` — absent, unparseable, not an object, carrying no numeric `t` to age it by, or
+ *   from a version older than this one. Nothing will ever read it and nothing can date it.
+ */
+type RecordHeader = { kind: 'readable' | 'future'; t: number } | { kind: 'unusable' };
+
+const UNUSABLE: RecordHeader = { kind: 'unusable' };
+
+const readRecordHeader = (key: string): RecordHeader => {
+  let parsed: unknown;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === null) {
+      return UNUSABLE;
+    }
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    console.error(`Failed to read localStorage record ${key}`, err);
+    return UNUSABLE;
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    return UNUSABLE;
+  }
+
+  const { v, t } = parsed as { v?: unknown; t?: unknown };
+  if (typeof t !== 'number') {
+    return UNUSABLE;
+  }
+  if (typeof v === 'number' && v > RECORD_VERSION) {
+    return { kind: 'future', t };
+  }
+  if (v === RECORD_VERSION) {
+    return { kind: 'readable', t };
+  }
+  return UNUSABLE;
+};
+
 export const reapLocalStorage = (now: number): ReapResult => {
   const result: ReapResult = { removed: [], migrated: [] };
 
@@ -184,8 +236,10 @@ export const reapLocalStorage = (now: number): ReapResult => {
     for (const draftId of legacyDraftIds(keys)) {
       const recordKey = draftStoreKey(draftId);
 
-      // Once a record exists it wins; the legacy keys are never consulted again.
-      if (readRecord<DraftStore>(recordKey) !== null) {
+      // Once a usable record exists it wins; the legacy keys are never consulted again. A
+      // record from a newer schema counts as usable here too — migrating over it would be
+      // the rollback overwriting the data the version field exists to protect.
+      if (readRecordHeader(recordKey).kind !== 'unusable') {
         continue;
       }
 
@@ -234,11 +288,12 @@ export const reapLocalStorage = (now: number): ReapResult => {
 
       switch (expiry.kind) {
         case 'record': {
-          // A record carries its own write time, so its age needs no external bookkeeping. A
-          // null read is corrupt or from a schema version this code cannot interpret; either
-          // way no reader can use it.
-          const record = readRecord(key);
-          if (record === null || now - record.t > expiry.ttlDays * DAY_MS) {
+          // A record carries its own write time, so its age needs no external bookkeeping.
+          // The header is read raw rather than through `readRecord`, which cannot tell a
+          // record this code is too old to read from one that is simply broken: the first
+          // must be kept, and only the second deleted.
+          const header = readRecordHeader(key);
+          if (header.kind === 'unusable' || now - header.t > expiry.ttlDays * DAY_MS) {
             remove(key);
           }
           break;

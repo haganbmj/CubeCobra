@@ -17,7 +17,13 @@ import RenderToRoot from 'components/RenderToRoot';
 import { CSRFContext } from 'contexts/CSRFContext';
 import DraftLocation, { location } from 'drafting/DraftLocation';
 import { locations } from 'drafting/DraftLocation';
-import { draftReducer, draftStoreFromLegacyKeys, draftStoreKey, initialDraftStore } from 'drafting/draftStore';
+import {
+  clearLegacyDraftKeys,
+  draftReducer,
+  draftStoreFromLegacyKeys,
+  draftStoreKey,
+  initialDraftStore,
+} from 'drafting/draftStore';
 import useAlerts, { Alerts } from 'hooks/UseAlerts';
 import { useStoredReducer } from 'hooks/useStoredReducer';
 import CubeLayout from 'layouts/CubeLayout';
@@ -194,7 +200,11 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
 
       // The server owns this draft's state now, so the local copy is dead weight. Only once
       // the POST is confirmed: a draft whose submission failed is still the user's only copy.
+      // The legacy keys go with it: the redirect below is the next page load, and the reaper
+      // rebuilds a record for any legacy draft id that has none — which would resurrect this
+      // draft's pre-submit state seconds after it was cleared.
       removeRecord(draftStoreKey(draft.id));
+      clearLegacyDraftKeys(draft.id);
 
       // Funnel denominator: a finished draft. "Submitted without building" is
       // derived in GA as draft_complete minus deck_build (no save = no event).
