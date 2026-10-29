@@ -180,6 +180,7 @@ export const reapLocalStorage = (now: number): ReapResult => {
 
     // Pass 1 — migrate. Before anything is evicted, so that the grace rule below can never
     // delete a legacy key that was about to become a record.
+    const migrationFailed = new Set<string>();
     for (const draftId of legacyDraftIds(keys)) {
       const recordKey = draftStoreKey(draftId);
 
@@ -197,6 +198,11 @@ export const reapLocalStorage = (now: number): ReapResult => {
 
       if (writeMigratedRecord(recordKey, store, now)) {
         result.migrated.push(draftId);
+      } else {
+        // The draft now has no record, and these legacy keys are its only home. Note the id
+        // so the grace rule below cannot delete them out from under a draft we failed to
+        // copy; the next load retries the migration.
+        migrationFailed.add(draftId);
       }
     }
 
@@ -245,6 +251,14 @@ export const reapLocalStorage = (now: number): ReapResult => {
           break;
         }
         case 'grace': {
+          // A draft whose migration failed this run still lives only in these keys, so it is
+          // held back regardless of the clock. Ids that migrated, and ids that were never
+          // candidates, are reaped on schedule.
+          const entity = family.entityOf(key);
+          if (entity !== null && migrationFailed.has(entity)) {
+            break;
+          }
+
           // Measured from this browser's first load of the new bundle, which is the only
           // timestamp these keys can be given.
           if (now - since > expiry.ttlDays * DAY_MS) {

@@ -211,6 +211,35 @@ describe('localStorage reaper', () => {
     expect(localStorage.getItem('picks-orphan')).toBeNull();
   });
 
+  it('keeps the legacy keys of a draft whose migration write failed', () => {
+    // The one path where the reaper could destroy a live draft: the record write fails (a
+    // full store), so the draft has no record — and then the grace clock, which knows only
+    // `now - firstSeenAt`, deletes the five legacy keys that were its only home.
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const setItem = Storage.prototype.setItem;
+    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key.startsWith('cc:draft:')) {
+        throw new DOMException('quota', 'QuotaExceededError');
+      }
+      setItem.call(this, key, value);
+    });
+    seedLegacyDraftAbc();
+
+    const first = reapLocalStorage(T);
+    expect(first.migrated).toEqual([]);
+    expect(localStorage.getItem('cc:draft:abc')).toBeNull();
+
+    const result = reapLocalStorage(T + 8 * DAY);
+
+    // The grace window has expired, but the draft still exists nowhere else.
+    expect(localStorage.getItem('cc:draft:abc')).toBeNull();
+    for (const key of Object.keys(LEGACY_KEYS_FOR_ABC)) {
+      expect(localStorage.getItem(key)).not.toBeNull();
+      expect(result.removed).not.toContain(key);
+    }
+    expect(consoleError).toHaveBeenCalled();
+  });
+
   it('deletes a legacy family on sight', () => {
     localStorage.setItem('showDraftRatings-abc', 'true');
 
