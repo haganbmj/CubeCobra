@@ -15,6 +15,9 @@ module.exports = {
 
   // Module name mapping for path aliases
   moduleNameMapper: {
+    // Stylesheet imports (RenderToRoot pulls in the global CSS so Vite manifests it) carry no
+    // behavior and jest's transform cannot parse them.
+    '\\.css$': '<rootDir>/test/__mocks__/styleMock.js',
     '^@utils/(.*)$': '<rootDir>/../utils/src/$1',
     '^components/(.*)$': '<rootDir>/src/components/$1',
     '^utils/(.*)$': '<rootDir>/src/utils/$1',

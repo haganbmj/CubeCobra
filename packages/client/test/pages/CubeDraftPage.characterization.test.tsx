@@ -334,9 +334,48 @@ describe('CubeDraftPage characterization', () => {
     expect(trashed).toEqual(binned.map((entry) => entry.index).reverse());
 
     expect(request.body.state.seats).toHaveLength(SEAT_COUNT);
-    // The posted boards match what is still in storage.
-    expect(flatten(harness.getStoredStore()?.mainboard)).toEqual(mainboard);
-    expect(harness.getStoredStore()?.picks).toEqual(picks);
-    expect(harness.getTrashboard()).toEqual(binned.map((entry) => entry.name).reverse());
+    // Storage is no longer a post-hoc cross-check for the POST body: submitting the draft
+    // clears the record (see 'clears the draft record once the draft is submitted'), so by
+    // the time the request is observable the local copy is already gone. The boards, picks
+    // and trashed lists it used to be compared against are all asserted on the body above.
+    expect(harness.getStoredStore()).toBeNull();
+  });
+
+  it('clears the draft record once the draft is submitted', async () => {
+    const harness = await renderDraftPage();
+
+    await harness.dragEnd(DraftLocation.pack(0), DraftLocation.pack(0));
+    // The record has to exist first, or "it is gone afterwards" proves nothing.
+    expect(window.localStorage.getItem(DRAFT_RECORD_KEY)).not.toBeNull();
+
+    await harness.finishDraft();
+    await harness.flush();
+
+    // The server owns the draft now, so the local copy is dead weight.
+    expect(window.localStorage.getItem(DRAFT_RECORD_KEY)).toBeNull();
+    expect(harness.getStoredStore()).toBeNull();
+  });
+
+  it('keeps the draft record when finishing fails', async () => {
+    // The page logs the failure it is being asked to produce; keep the suite output clean.
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const harness = await renderDraftPage({ failFinish: true });
+
+      await harness.finishDraft();
+      await harness.flush();
+
+      const picked = harness.playLog().filter((entry) => entry.action === 'pick');
+
+      // The POST never landed, so the draft has to stay resumable — clearing it here would
+      // destroy a draft the server knows nothing about.
+      const stored = harness.getStoredStore();
+      expect(stored).not.toBeNull();
+      expect(stored?.picks).toEqual(picked.map((entry) => entry.index).reverse());
+      expect(flatten(stored?.mainboard)).toHaveLength(picked.length);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });

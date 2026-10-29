@@ -23,6 +23,7 @@ import { useStoredReducer } from 'hooks/useStoredReducer';
 import CubeLayout from 'layouts/CubeLayout';
 import MainLayout from 'layouts/MainLayout';
 import { trackEvent } from 'utils/analytics';
+import { removeRecord } from 'utils/localStorage/record';
 
 interface CubeDraftPageProps {
   cube: Cube;
@@ -190,6 +191,10 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
       if (!finishResponse.ok) {
         throw new Error(`HTTP error! Status: ${finishResponse.status}`);
       }
+
+      // The server owns this draft's state now, so the local copy is dead weight. Only once
+      // the POST is confirmed: a draft whose submission failed is still the user's only copy.
+      removeRecord(draftStoreKey(draft.id));
 
       // Funnel denominator: a finished draft. "Submitted without building" is
       // derived in GA as draft_complete minus deck_build (no save = no event).

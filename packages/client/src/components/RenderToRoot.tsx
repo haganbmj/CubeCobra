@@ -18,6 +18,7 @@ import CaptchaContext from '../contexts/CaptchaContext';
 import { CSRFContextProvider } from '../contexts/CSRFContext';
 import UserContext, { UserContextValue } from '../contexts/UserContext';
 import { initErrorReporting } from '../utils/errorReporting';
+import { reapLocalStorage } from '../utils/localStorage/reap';
 import ErrorBoundary from './ErrorBoundary';
 
 declare global {
@@ -35,6 +36,26 @@ export interface UniversalReactProps {
   captchaSiteKey: string;
   csrfToken: string;
 }
+
+/**
+ * Migrates legacy draft keys and evicts expired ones, once per page load.
+ *
+ * This is the only hook that runs on every page: `RenderToRoot` is on every page's entry
+ * graph, so wiring it here costs nothing, where wiring it per page would mean touching ~40
+ * entry points and silently missing any added later.
+ *
+ * `reapLocalStorage` already swallows its own failures, so the guard here is a second line:
+ * tidying storage must never be able to stop a page from rendering, whatever the reaper
+ * grows into. Hoisted out of `RenderToRoot` because oxlint's `react(purity)` rule reads that
+ * function as a render body and rejects a `Date.now()` read inside one.
+ */
+const reapStorage = (): void => {
+  try {
+    reapLocalStorage(Date.now());
+  } catch (err) {
+    console.error('Failed to reap localStorage', err);
+  }
+};
 
 // Returns its input to enable our usual pattern of export default RenderToRoot(XPage).
 const RenderToRoot = <P,>(Element: ComponentType<P>): ComponentType<P> => {
@@ -61,6 +82,9 @@ const RenderToRoot = <P,>(Element: ComponentType<P>): ComponentType<P> => {
     // Install global error handlers (window.onerror / unhandledrejection) before we
     // render so we capture failures during the initial mount too.
     initErrorReporting();
+
+    // Tidy storage before the page mounts, so an expired record is never read back.
+    reapStorage();
 
     const wrapper = document.getElementById('react-root');
     if (wrapper) {

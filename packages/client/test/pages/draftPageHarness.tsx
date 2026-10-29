@@ -282,6 +282,11 @@ export interface RenderDraftPageOptions {
   holdPredictions?: boolean;
   /** Seed `localStorage` before mount. */
   storage?: Record<string, unknown>;
+  /**
+   * Answer `/draft/finish/:id` with a 500 instead of a 200, so the page takes its failure
+   * path. The request is still recorded, so `finishDraft` returns as usual.
+   */
+  failFinish?: boolean;
 }
 
 export const renderDraftPage = async (options: RenderDraftPageOptions = {}): Promise<DraftPageHarness> => {
@@ -330,6 +335,9 @@ export const renderDraftPage = async (options: RenderDraftPageOptions = {}): Pro
     const url = typeof input === 'string' ? input : String(input);
     if (url === `/draft/finish/${draft.id}`) {
       finishRequests.push({ url, body: JSON.parse(init.body) });
+      if (options.failFinish) {
+        return { ok: false, status: 500, json: async () => ({}) } as unknown as Response;
+      }
       return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
     }
     throw new Error(`Unexpected csrfFetch to ${url}`);
