@@ -282,7 +282,23 @@ const CubeDraftPage: React.FC<CubeDraftPageProps> = ({ cube, draft }) => {
     async (packIndex: number) => {
       setDraftStatus((prev) => ({ ...prev, loading: true }));
       setRatings([]); // Clear ratings
-      const newState = { ...state };
+      // Every level this function mutates is copied first. It advances the state in place and
+      // only publishes it at the end, after awaiting predictions — and the store now persists
+      // on change, so a shallow copy would let those intermediate mutations reach
+      // `localStorage` through the store's own objects. A reload inside that window would then
+      // restore a half-advanced draft: step queue shifted and packs rotated, but `pack`/`pick`
+      // still describing the pick that never finished. It also makes `replaceState` safe to
+      // alias this payload, rather than safe only because nothing touches it afterwards.
+      const newState = {
+        ...state,
+        stepQueue: [...state.stepQueue],
+        seats: state.seats.map((seat) => ({
+          ...seat,
+          pack: [...seat.pack],
+          picks: [...seat.picks],
+          trashed: [...seat.trashed],
+        })),
+      };
       const currentStep = newState.stepQueue[0];
 
       if (!currentStep) {

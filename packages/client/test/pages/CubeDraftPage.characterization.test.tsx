@@ -14,6 +14,7 @@ import DraftLocation from 'drafting/DraftLocation';
 
 import {
   cardName,
+  DRAFT_ID,
   DRAFT_RECORD_KEY,
   DraftPageHarness,
   renderDraftPage,
@@ -114,7 +115,9 @@ describe('CubeDraftPage characterization', () => {
     expect(stored!.picks).toEqual([0]);
 
     // None of the five keys that used to back those values is written any more, and the record
-    // is the only thing this session put in storage.
+    // is the only thing this session stored about the draft under test. Scoped to this draft's
+    // keys rather than the whole store, so an unrelated provider writing to localStorage inside
+    // the harness cannot break an assertion that is about the draft record.
     expect(Object.values(storageKeys).map((key) => window.localStorage.getItem(key))).toEqual([
       null,
       null,
@@ -122,8 +125,10 @@ describe('CubeDraftPage characterization', () => {
       null,
       null,
     ]);
-    expect(window.localStorage.length).toBe(1);
-    expect(window.localStorage.key(0)).toBe(DRAFT_RECORD_KEY);
+    const storedKeys = Array.from({ length: window.localStorage.length }, (_unused, index) =>
+      window.localStorage.key(index),
+    );
+    expect(storedKeys.filter((key) => key !== null && key.includes(DRAFT_ID))).toEqual([DRAFT_RECORD_KEY]);
   });
 
   it('drops a dragged pack card into the cell it was dropped on', async () => {
@@ -233,6 +238,43 @@ describe('CubeDraftPage characterization', () => {
 
     expect(harness.getPicks()).toEqual([0]);
     expect(harness.getMainboard()).toEqual([cardName(0)]);
+  });
+
+  it('never persists a half-advanced draft state while a pick is in flight', async () => {
+    const harness = await renderDraftPage({ holdPredictions: true });
+
+    // Queue a pick behind the opening prediction. That writes the record for the first time,
+    // still carrying the untouched opening state.
+    await harness.dragEnd(DraftLocation.pack(0), DraftLocation.pack(0));
+
+    const before = harness.getStoredStore();
+    expect(before).not.toBeNull();
+    expect(before!.state.pack).toBe(1);
+    expect(before!.state.pick).toBe(1);
+    expect(before!.state.stepQueue[0]!.action).toBe('pick');
+
+    // Resolving the opening prediction releases the queued pick, which runs `makePick`. That
+    // advances a working copy of the state and then waits on a fresh prediction before
+    // publishing it, so the draft is now mid-flight.
+    await harness.resolvePredictions();
+    expect(harness.pendingPredictionCount()).toBe(1);
+
+    const inFlight = harness.getStoredStore();
+    expect(inFlight).not.toBeNull();
+    // Nothing published yet, so storage must still describe the pre-pick draft rather than a
+    // state whose packs and step queue have moved on while its counters have not. A reload
+    // here has to resume a draft that can still be finished.
+    expect(inFlight!.state.stepQueue.map((step) => step.action)).toEqual(
+      before!.state.stepQueue.map((step) => step.action),
+    );
+    expect(inFlight!.state.seats.map((seat) => seat.pack)).toEqual(before!.state.seats.map((seat) => seat.pack));
+    expect(inFlight!.state).toEqual(before!.state);
+
+    // And once it does publish, the published state is internally consistent.
+    await settlePredictions(harness);
+    const published = harness.getStoredStore();
+    expect(published!.state.pick).toBe(2);
+    expect(published!.state.stepQueue[0]!.action).toBe('pick');
   });
 
   it('does not record a pick when a trash is queued behind predictions', async () => {
