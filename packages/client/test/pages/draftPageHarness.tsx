@@ -264,7 +264,6 @@ export interface DraftPageHarness {
   getStoredDraft: () => State | null;
   /** The whole stored draft record, or null if the page has not written one yet. */
   getStoredStore: () => DraftStore | null;
-  getStored: (key: string) => any;
   /** Resolves every outstanding `/api/draftbots/batchpredict` call. */
   resolvePredictions: () => Promise<void>;
   pendingPredictionCount: () => number;
@@ -368,11 +367,6 @@ export const renderDraftPage = async (options: RenderDraftPageOptions = {}): Pro
       index: Number(element.getAttribute('data-index')),
     }));
 
-  const getStored = (key: string) => {
-    const raw = window.localStorage.getItem(key);
-    return raw === null ? null : JSON.parse(raw);
-  };
-
   const getStoredStore = (): DraftStore | null => readRecord<DraftStore>(DRAFT_RECORD_KEY)?.data ?? null;
 
   const namesFor = (indices: number[] | null): string[] => (indices ?? []).map((index) => cardName(index));
@@ -410,7 +404,6 @@ export const renderDraftPage = async (options: RenderDraftPageOptions = {}): Pro
     getPicks: () => getStoredStore()?.picks ?? [],
     getStoredDraft: () => getStoredStore()?.state ?? null,
     getStoredStore,
-    getStored,
     pendingPredictionCount: () => pending.length,
     predictRequests: () => predictRequests,
     finishRequests: () => finishRequests,
