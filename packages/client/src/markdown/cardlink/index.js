@@ -22,7 +22,7 @@ function splitFirst(value, delimiter) {
   return [value.slice(0, index), value.slice(index + delimiter.length)];
 }
 
-function onp1p1(node, remainder, allowEmbeds) {
+function onp1p1(node, remainder, allowEmbeds, inParagraph) {
   /* Tables don't allow raw pipes (|) in their cell contents unless escaped - see the comment on
    * markCardlinksInTables below - so mirror the cardlink id/name split: prefer an escaped `\|` split
    * over a plain `|` split, and in either case split on the FIRST occurrence only so a caption
@@ -50,12 +50,18 @@ function onp1p1(node, remainder, allowEmbeds) {
     id,
     caption,
     inTable: node.inTable,
+    inParagraph,
   };
 }
 
 function oncard(node, index, parent, allowEmbeds) {
+  // Needed to determine whether the embed/image is rendered in a div or in a span: the token is
+  // inline, so a direct paragraph parent (or a parent that is itself already flagged, e.g. a
+  // cardimage nested one level deeper) means a block wrapper would be invalid HTML.
+  const inParagraph = parent.type === 'paragraph' || parent.inParagraph;
+
   if (node.value.startsWith(P1P1_PREFIX)) {
-    onp1p1(node, node.value.slice(P1P1_PREFIX.length), allowEmbeds);
+    onp1p1(node, node.value.slice(P1P1_PREFIX.length), allowEmbeds, inParagraph);
     return;
   }
 
@@ -83,7 +89,7 @@ function oncard(node, index, parent, allowEmbeds) {
     node.type = 'cardimage';
   }
 
-  if (node.type === 'cardimage' && (parent.type === 'paragraph' || parent.inParagraph)) {
+  if (node.type === 'cardimage' && inParagraph) {
     // Needed to determine whether the image is rendered in a div or in a span
     node.inParagraph = true;
   }

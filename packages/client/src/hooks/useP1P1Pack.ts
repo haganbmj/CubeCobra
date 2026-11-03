@@ -5,6 +5,7 @@ import { P1P1Pack, P1P1VoteSummary } from '@utils/datatypes/P1P1Pack';
 interface UseP1P1PackResult {
   pack: P1P1Pack | null;
   votes: P1P1VoteSummary | null;
+  cube: { name: string; shortId: string } | null;
   loading: boolean;
   error: string | null;
   refetch: () => void;
@@ -13,6 +14,7 @@ interface UseP1P1PackResult {
 const useP1P1Pack = (packId: string | null): UseP1P1PackResult => {
   const [pack, setPack] = useState<P1P1Pack | null>(null);
   const [votes, setVotes] = useState<P1P1VoteSummary | null>(null);
+  const [cube, setCube] = useState<{ name: string; shortId: string } | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,11 +36,13 @@ const useP1P1Pack = (packId: string | null): UseP1P1PackResult => {
 
       setPack(data.pack);
       setVotes(data.votes);
+      setCube(data.cube);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
       setPack(null);
       setVotes(null);
+      setCube(null);
     } finally {
       setLoading(false);
     }
@@ -52,6 +56,7 @@ const useP1P1Pack = (packId: string | null): UseP1P1PackResult => {
   return {
     pack,
     votes,
+    cube,
     loading,
     error,
     refetch: fetchPack,
