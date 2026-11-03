@@ -28,6 +28,15 @@ const P1P1Header: React.FC<P1P1HeaderProps> = ({ pack, votes, showBotWeights, on
     setTimeout(dismissAlerts, 3000);
   };
 
+  // The embed token this pack would be written as in a blog post or primer. Offered here because an
+  // author who is looking at a pack they want to share is exactly the person who needs it, and the
+  // alternative is knowing the syntax and hand-assembling it from the URL.
+  const handleCopyEmbed = () => {
+    navigator.clipboard?.writeText(`[[p1p1:${pack.id}]]`);
+    addAlert('success', 'Embed markdown copied - paste it into a blog post or cube primer');
+    setTimeout(dismissAlerts, 3000);
+  };
+
   return (
     <Flexbox direction="col" gap="2">
       <Alerts alerts={alerts} />
@@ -65,6 +74,10 @@ const P1P1Header: React.FC<P1P1HeaderProps> = ({ pack, votes, showBotWeights, on
           <Button color="primary" className="px-3 py-2" onClick={handleShare}>
             <PasteIcon size={16} className="me-1" />
             Share
+          </Button>
+          <Button color="primary" className="px-3 py-2" onClick={handleCopyEmbed}>
+            <PasteIcon size={16} className="me-1" />
+            Copy embed
           </Button>
           <Button type="link" color="accent" href={`/cube/p1p1packimage/${pack.id}`} className="px-3 py-2">
             Get image
