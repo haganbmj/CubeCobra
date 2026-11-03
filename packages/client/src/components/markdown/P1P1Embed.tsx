@@ -7,6 +7,7 @@ import { useEmbedBudget } from 'contexts/EmbedBudgetContext';
 import useNearViewport from 'hooks/useNearViewport';
 import useP1P1Pack from 'hooks/useP1P1Pack';
 
+import P1P1EmbedModal from './P1P1EmbedModal';
 import P1P1EmbedTile from './P1P1EmbedTile';
 
 export interface P1P1EmbedProps {
@@ -102,6 +103,11 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
   const [forceLoad, setForceLoad] = useState(false);
   const [decision, setDecision] = useState<'pending' | 'fetch' | 'declined'>('pending');
   const [isOwner, setIsOwner] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  // Owner or subscriber, voting in the modal must update this instance's own tile - so the override
+  // lives here rather than on whichever side happens to own the fetch, and takes precedence over
+  // both `ownVotes` and a subscriber's `sharedResult.votes` once set.
+  const [voteOverride, setVoteOverride] = useState<P1P1VoteSummary | null>(null);
   // Guard each decision path to run at most once per instance (refs, not `decision` state - see
   // the comment inside the effect below for why state can't be used for this).
   const normalDecidedRef = useRef(false);
@@ -195,7 +201,9 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
   }, [decision, isOwner, id, getFetchResult, subscribeFetchResult]);
 
   const pack = isOwner ? ownPack : (sharedResult?.pack ?? null);
-  const votes = isOwner ? ownVotes : (sharedResult?.votes ?? null);
+  // A vote cast in this instance's own modal always wins over whatever the fetch (own or shared)
+  // produced, regardless of which side of the owner/subscriber split this instance landed on.
+  const votes = voteOverride ?? (isOwner ? ownVotes : (sharedResult?.votes ?? null));
   const cube = isOwner ? ownCube : (sharedResult?.cube ?? null);
   const error = isOwner ? ownError : (sharedResult?.error ?? null);
   const loading = decision === 'fetch' && (isOwner ? ownLoading : !sharedResult);
@@ -235,8 +243,16 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
 
   return (
     <Tag ref={ref} data-testid="p1p1-embed" data-pack-id={id} className={frameClass}>
-      {/* Task 6 wires the detail modal into this callback; for now expanding is a no-op. */}
-      <P1P1EmbedTile pack={pack} votes={votes} cube={cube} caption={caption} onExpand={() => {}} />
+      <P1P1EmbedTile pack={pack} votes={votes} cube={cube} caption={caption} onExpand={() => setModalOpen(true)} />
+      <P1P1EmbedModal
+        pack={pack}
+        votes={votes}
+        cube={cube}
+        caption={caption}
+        isOpen={modalOpen}
+        setOpen={setModalOpen}
+        onVoteUpdate={setVoteOverride}
+      />
     </Tag>
   );
 };
