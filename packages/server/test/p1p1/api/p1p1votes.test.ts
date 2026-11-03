@@ -1,5 +1,5 @@
 import { UnhydratedP1P1Pack } from '../../../src/dynamo/dao/P1P1PackDynamoDao';
-import { getP1P1VotesHandler } from '../../../src/router/routes/tool/api/p1p1votes';
+import { getP1P1VotesHandler, routes, validateParams } from '../../../src/router/routes/tool/api/p1p1votes';
 import { createCube, createUser } from '../../test-utils/data';
 import { call } from '../../test-utils/transport';
 
@@ -108,5 +108,17 @@ describe('P1P1 votes-only API', () => {
 
     expect(res.status).toEqual(500);
     expect(res.body).toEqual({ error: 'Error fetching P1P1 votes' });
+  });
+
+  it('rejects a non-uuid pack id', async () => {
+    const res = await call(validateParams).withParams({ packId: 'not-a-uuid' }).send();
+
+    expect(res.status).toEqual(400);
+    expect(res.body).toEqual({ error: 'Invalid pack ID format' });
+  });
+
+  // The validator only protects the route if it is actually in front of the handler.
+  it('runs the validator before the handler', () => {
+    expect(routes[0].handler).toEqual([validateParams, getP1P1VotesHandler]);
   });
 });
