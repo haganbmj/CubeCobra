@@ -16,6 +16,7 @@ import { AutocardContextProvider } from '../contexts/AutocardContext';
 import BaseUrlContext, { BaseUrlContextValue } from '../contexts/BaseUrlContext';
 import CaptchaContext from '../contexts/CaptchaContext';
 import { CSRFContextProvider } from '../contexts/CSRFContext';
+import { EmbedBudgetContextProvider } from '../contexts/EmbedBudgetContext';
 import UserContext, { UserContextValue } from '../contexts/UserContext';
 import { initErrorReporting } from '../utils/errorReporting';
 import ErrorBoundary from './ErrorBoundary';
@@ -42,17 +43,21 @@ const RenderToRoot = <P,>(Element: ComponentType<P>): ComponentType<P> => {
   const element: ReactElement = (
     <ErrorBoundary className="mt-3">
       <CSRFContextProvider csrfToken={reactProps.csrfToken}>
-        <CaptchaContext.Provider value={reactProps.captchaSiteKey}>
-          <AutocardContextProvider>
-            <AdsContext.Provider value={reactProps.nitroPayEnabled}>
-              <BaseUrlContext.Provider value={reactProps.baseUrl}>
-                <UserContext.Provider value={reactProps.user || null}>
-                  <Element {...reactProps} />
-                </UserContext.Provider>
-              </BaseUrlContext.Provider>
-            </AdsContext.Provider>
-          </AutocardContextProvider>
-        </CaptchaContext.Provider>
+        {/* Shared by every `Markdown` instance on the page, so a feed of many posts resolves only
+            a bounded number of embeds no matter how many posts or tokens it contains. */}
+        <EmbedBudgetContextProvider>
+          <CaptchaContext.Provider value={reactProps.captchaSiteKey}>
+            <AutocardContextProvider>
+              <AdsContext.Provider value={reactProps.nitroPayEnabled}>
+                <BaseUrlContext.Provider value={reactProps.baseUrl}>
+                  <UserContext.Provider value={reactProps.user || null}>
+                    <Element {...reactProps} />
+                  </UserContext.Provider>
+                </BaseUrlContext.Provider>
+              </AdsContext.Provider>
+            </AutocardContextProvider>
+          </CaptchaContext.Provider>
+        </EmbedBudgetContextProvider>
       </CSRFContextProvider>
     </ErrorBoundary>
   );
