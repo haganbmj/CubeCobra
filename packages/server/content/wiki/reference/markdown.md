@@ -47,6 +47,32 @@ of the pipe:
 [[Old Border Mystic Snake|f098a28c-5f9b-4a2c-b109-c342365eb948]]
 [[New Border Mystic Snake|38810fe4-dc72-439e-adf7-362af772b8f8]]
 
+## Pack 1 Pick 1 Embeds
+
+Embed a Pack 1 Pick 1 preview tile using the double square bracket syntax with the `p1p1:` prefix. You
+can find the pack ID in the URL of a pack's page (`https://cubecobra.com/cube/p1p1/<id>`). Without a
+caption, the tile shows no title; add a caption after a pipe (`|`) to give it a label.
+
+| Source                                                        | Result                                                    |
+| ------------------------------------------------------------- | --------------------------------------------------------- |
+| `[[p1p1:a1b2c3d4-e5f6-47a8-9b1c-2d3e4f5a6b7c]]`             | [[p1p1:a1b2c3d4-e5f6-47a8-9b1c-2d3e4f5a6b7c]]             |
+| `[[p1p1:a1b2c3d4-e5f6-47a8-9b1c-2d3e4f5a6b7c\|My Pack]]`   | [[p1p1:a1b2c3d4-e5f6-47a8-9b1c-2d3e4f5a6b7c\|My Pack]]   |
+
+The caption is the text after the first pipe, so a caption may itself contain pipes. The tile displays
+the pack, its caption, the cube's name, who created it, the vote count, and whether you have voted. The
+tile is not interactive — click it to open a larger view where you can vote.
+
+To display pack tiles alongside each other in a row, wrap them in double angle brackets.
+
+```
+<<[[p1p1:a1b2c3d4-e5f6-47a8-9b1c-2d3e4f5a6b7c|Pack 1]][[p1p1:b2c3d4e5-f6a7-48b9-0c2d-3e4f5a6b7c8d|Pack 2]]>>
+```
+
+<<[[p1p1:a1b2c3d4-e5f6-47a8-9b1c-2d3e4f5a6b7c|Pack 1]][[p1p1:b2c3d4e5-f6a7-48b9-0c2d-3e4f5a6b7c8d|Pack 2]]>>
+
+**Note:** Pack embeds only render in long-form content such as blog posts, cube primers, articles, and
+user profiles. In comments, the embed syntax remains as plain text.
+
 ## Card Images
 
 Add an exclamation point before the card name to display its image instead of a text link. Images
