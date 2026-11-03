@@ -128,6 +128,13 @@ describe('P1P1EmbedTile', () => {
     expect(container.querySelectorAll('[data-testid="p1p1-embed-card"] a')).toHaveLength(0);
   });
 
+  // A bare `<button>` is `cursor: default` in every browser, and the whole tile being the control
+  // is not otherwise discoverable - there is no affordance to hover except the tile itself.
+  it('shows a pointer cursor, since the whole tile is the control', () => {
+    renderTile({});
+    expect(screen.getByTestId('p1p1-embed-tile')).toHaveClass('hover:cursor-pointer');
+  });
+
   // Column count follows the pack's size via the same table the social-card image uses, not
   // viewport breakpoints - those respond to the window, so a narrow tile in a `<<...>>` row used to
   // ask for twelve columns and render cards too small to read.

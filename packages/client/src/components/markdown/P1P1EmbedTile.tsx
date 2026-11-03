@@ -72,7 +72,7 @@ const P1P1EmbedTile: React.FC<P1P1EmbedTileProps> = ({ pack, votes, cube, captio
       type="button"
       data-testid="p1p1-embed-tile"
       onClick={onExpand}
-      className="w-full text-left flex flex-col gap-2"
+      className="w-full text-left flex flex-col gap-2 hover:cursor-pointer"
     >
       {caption !== undefined && (
         <span data-testid="p1p1-embed-caption" className="block font-medium">
