@@ -47,6 +47,10 @@ export const getP1P1Handler = async (req: Request, res: Response) => {
       success: true,
       pack,
       votes: voteSummary,
+      cube: {
+        name: cube.name,
+        shortId: cube.shortId,
+      },
     });
   } catch (err) {
     const error = err as Error;

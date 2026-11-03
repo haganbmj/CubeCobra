@@ -60,6 +60,7 @@ describe('Get P1P1 Pack API', () => {
   it('should return pack when found', async () => {
     const packId = uuid.v4();
     const pack = createP1P1Pack({ id: packId });
+    const cube = createCube();
     const voteSummary = {
       totalVotes: 0,
       results: [],
@@ -69,6 +70,7 @@ describe('Get P1P1 Pack API', () => {
     };
 
     (p1p1PackDao.getById as jest.Mock).mockResolvedValue(pack);
+    (cubeDao.getById as jest.Mock).mockResolvedValue(cube);
     (p1p1PackDao.getVoteSummary as jest.Mock).mockReturnValue(voteSummary);
 
     const res = await call(getP1P1Handler).withParams({ packId }).send();
@@ -79,6 +81,10 @@ describe('Get P1P1 Pack API', () => {
       success: true,
       pack,
       votes: voteSummary,
+      cube: {
+        name: cube.name,
+        shortId: cube.shortId,
+      },
     });
   });
 
@@ -118,5 +124,14 @@ describe('Get P1P1 Pack API', () => {
     expect(res.body).toEqual({
       error: 'Error fetching P1P1 pack',
     });
+  });
+
+  it('returns the cube name and shortId alongside the pack', async () => {
+    (p1p1PackDao.getById as jest.Mock).mockResolvedValue(createP1P1Pack());
+    (cubeDao.getById as jest.Mock).mockResolvedValue(createCube({ name: 'Vintage Cube', shortId: 'vintage' }));
+
+    const res = await call(getP1P1Handler).withParams({ packId: uuid.v4() }).send();
+
+    expect(res.body.cube).toEqual({ name: 'Vintage Cube', shortId: 'vintage' });
   });
 });
