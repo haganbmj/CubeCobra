@@ -14,7 +14,7 @@ const ROOT_MARGIN = '200px';
  * all, so this fails open there - true from the start - rather than permanently stranding every
  * embed on the page behind a budget check that can never run.
  */
-const useNearViewport = (ref: RefObject<Element>): boolean => {
+const useNearViewport = (ref: RefObject<Element | null>): boolean => {
   const [nearViewport, setNearViewport] = useState(false);
 
   useEffect(() => {

@@ -6,6 +6,7 @@ import Button from 'components/base/Button';
 import { useEmbedBudget } from 'contexts/EmbedBudgetContext';
 import useNearViewport from 'hooks/useNearViewport';
 import useP1P1Pack from 'hooks/useP1P1Pack';
+import { readPack } from 'utils/p1p1PackCache';
 
 import P1P1EmbedModal from './P1P1EmbedModal';
 import P1P1EmbedTile from './P1P1EmbedTile';
@@ -80,8 +81,10 @@ const fetchP1P1PackResult = async (id: string): Promise<P1P1FetchResult> => {
  *
  * Fetching is gated by a page-wide budget (`EmbedBudgetContext`) and by viewport proximity
  * (`useNearViewport`): an embed only asks for data once it has scrolled near the viewport, and only
- * if the page hasn't already spent its budget on other embeds. Past the budget, the tile shows its
- * frame plus a "Load This" button that fetches directly, bypassing both checks - the reader can
+ * if the page hasn't already spent its budget on other embeds. A pack already sitting in the
+ * client-side cache (`p1p1PackCache.ts`) skips the budget check entirely - the budget bounds
+ * fetches, and a cache hit doesn't cost one. Past the budget, the tile shows its frame plus a "Load
+ * This" button that fetches directly, bypassing both checks - the reader can
  * always get the content, it just costs a click.
  *
  * A *duplicate* embed of a pack another embed on the page is already fetching is different: it is
@@ -97,7 +100,7 @@ const fetchP1P1PackResult = async (id: string): Promise<P1P1FetchResult> => {
  * present now or arriving later - is never left waiting on an owner that's gone.
  */
 const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph }) => {
-  const ref = useRef<HTMLElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
   const nearViewport = useNearViewport(ref);
   const { claim, reserveFetch, publishFetchResult, getFetchResult, subscribeFetchResult } = useEmbedBudget();
   const [forceLoad, setForceLoad] = useState(false);
@@ -113,6 +116,29 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
   const normalDecidedRef = useRef(false);
   const forceLoadDecidedRef = useRef(false);
 
+  // A pack's cards never change after it's generated, so a pack already sitting in IndexedDB can be
+  // rendered without spending any of the page's fetch budget on re-reading it from DynamoDB/S3 - the
+  // budget bounds *fetches*, and a cache hit isn't one. Checked once nearViewport flips true, same
+  // gating cost as the decision below, and the decision effect waits on `cacheChecked` (this check
+  // is async - IndexedDB - so its answer can't be known within the same tick nearViewport flips).
+  const [cachedPack, setCachedPack] = useState<P1P1Pack | null>(null);
+  const [cacheChecked, setCacheChecked] = useState(false);
+  const cacheCheckedRef = useRef(false);
+
+  useEffect(() => {
+    if (cacheCheckedRef.current || !nearViewport) return;
+    cacheCheckedRef.current = true;
+    let cancelled = false;
+    readPack(id).then((cached) => {
+      if (cancelled) return;
+      setCachedPack(cached);
+      setCacheChecked(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [nearViewport, id]);
+
   useEffect(() => {
     if (forceLoad) {
       if (forceLoadDecidedRef.current) return;
@@ -127,8 +153,16 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
       setDecision('fetch');
       return;
     }
-    if (normalDecidedRef.current || !nearViewport) return;
+    if (normalDecidedRef.current || !nearViewport || !cacheChecked) return;
     normalDecidedRef.current = true;
+    if (cachedPack) {
+      // Cache hit: skip `claim` entirely rather than spending a slot on a read that costs nothing
+      // locally. Still goes through `reserveFetch` so duplicate embeds of the same cached pack
+      // share one vote-summary request rather than each firing their own.
+      setIsOwner(reserveFetch(id));
+      setDecision('fetch');
+      return;
+    }
     if (!claim(id)) {
       setDecision('declined');
       return;
@@ -142,7 +176,7 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
     // this same effect a second time the moment either branch sets it).
     setIsOwner(reserveFetch(id));
     setDecision('fetch');
-  }, [nearViewport, forceLoad, claim, reserveFetch, id]);
+  }, [nearViewport, forceLoad, claim, reserveFetch, id, cacheChecked, cachedPack]);
 
   const shouldFetch = decision === 'fetch' && isOwner;
   const {
@@ -154,18 +188,15 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
   } = useP1P1Pack(shouldFetch ? id : null);
 
   // Once the owning embed's own fetch settles, publish it for any duplicate embed of the same pack
-  // elsewhere on the page. Guarded by `hasStartedFetch`: `useP1P1Pack`'s `loading` starts out
-  // `false` for one render before its own effect flips it to `true`, so without this guard that
-  // transient render would publish a bogus "resolved to nothing" result before the fetch has even
-  // begun.
-  const hasStartedFetch = useRef(false);
+  // elsewhere on the page. Gated on `ownLoading` being false *and* at least one field having
+  // resolved to something - not on observing a transient "loading flipped to true" render, which a
+  // batched update (e.g. a fetch whose first `await` settles within the same microtask flush as a
+  // prior one - the pack cache check adds exactly such a flush) can skip entirely. `useP1P1Pack`'s
+  // untouched initial state is `loading: false` with every other field `null`, otherwise
+  // indistinguishable from "resolved to nothing" without this check.
   useEffect(() => {
-    if (!shouldFetch) return;
-    if (ownLoading) {
-      hasStartedFetch.current = true;
-      return;
-    }
-    if (!hasStartedFetch.current) return;
+    if (!shouldFetch || ownLoading) return;
+    if (ownPack === null && ownVotes === null && ownCube === null && ownError === null) return;
     publishFetchResult<P1P1FetchResult>(id, { pack: ownPack, votes: ownVotes, cube: ownCube, error: ownError });
   }, [shouldFetch, ownLoading, ownPack, ownVotes, ownCube, ownError, id, publishFetchResult]);
 

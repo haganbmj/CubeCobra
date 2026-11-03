@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
 
@@ -48,11 +48,18 @@ beforeEach(() => {
 // Embeds are opt-in per surface (default off), so these tests - which exercise the token's own
 // parsing/rendering behavior rather than the gate itself - render with `allowEmbeds` on throughout.
 // The gate is covered separately below.
-const renderMarkdown = (markdown: string) => render(<Markdown markdown={markdown} allowEmbeds />).container;
+const renderMarkdown = async (markdown: string) => {
+  const container = render(<Markdown markdown={markdown} allowEmbeds />).container;
+  // `P1P1Embed` now checks the pack cache (`p1p1PackCache.ts`) before deciding to fetch, which adds
+  // one async hop before its decision settles past the loading skeleton - flush it so callers can
+  // assert on the resolved tile synchronously afterward.
+  await act(() => Promise.resolve());
+  return container;
+};
 
 describe('p1p1 embed token', () => {
-  it('renders a tile for a p1p1 token', () => {
-    const c = renderMarkdown(`[[p1p1:${PACK_ID}]]\n`);
+  it('renders a tile for a p1p1 token', async () => {
+    const c = await renderMarkdown(`[[p1p1:${PACK_ID}]]\n`);
     expect(c.querySelector('[data-testid="p1p1-embed"]')).toBeInTheDocument();
   });
 
@@ -61,39 +68,39 @@ describe('p1p1 embed token', () => {
   // still nests the tile's own block content (the card grid) inside a `<p>` - exactly the invalid
   // nesting `inParagraph` exists to avoid, just one level further down. `cardlinks` unwraps this case
   // by replacing the paragraph with the embed itself, so the frame renders at the block level.
-  it('unwraps a paragraph whose only content is a p1p1 token, rendering the tile at the block level', () => {
-    const c = renderMarkdown(`[[p1p1:${PACK_ID}]]\n`);
+  it('unwraps a paragraph whose only content is a p1p1 token, rendering the tile at the block level', async () => {
+    const c = await renderMarkdown(`[[p1p1:${PACK_ID}]]\n`);
     const tile = c.querySelector('[data-testid="p1p1-embed"]') as HTMLElement;
     expect(tile).toBeInTheDocument();
     expect(tile.tagName).toBe('DIV');
     expect(tile.closest('p')).toBeNull();
   });
 
-  it('shows the caption after the pipe', () => {
-    const c = renderMarkdown(`[[p1p1:${PACK_ID}|Sol Ring or Force of Will?]]\n`);
+  it('shows the caption after the pipe', async () => {
+    const c = await renderMarkdown(`[[p1p1:${PACK_ID}|Sol Ring or Force of Will?]]\n`);
     expect(c.querySelector('[data-testid="p1p1-embed-caption"]')).toHaveTextContent('Sol Ring or Force of Will?');
   });
 
-  it('keeps a caption containing pipes intact and does not corrupt the id', () => {
-    const c = renderMarkdown(`[[p1p1:${PACK_ID}|Red, Blue | Green]]\n`);
+  it('keeps a caption containing pipes intact and does not corrupt the id', async () => {
+    const c = await renderMarkdown(`[[p1p1:${PACK_ID}|Red, Blue | Green]]\n`);
     const tile = c.querySelector('[data-testid="p1p1-embed"]') as HTMLElement;
     expect(tile.dataset.packId).toBe(PACK_ID);
     expect(c.querySelector('[data-testid="p1p1-embed-caption"]')).toHaveTextContent('Red, Blue | Green');
   });
 
-  it.each(['[[p1p1:]]', '[[p1p1:not-a-uuid]]'])('renders %s as plain text', (token) => {
-    const c = renderMarkdown(`${token}\n`);
+  it.each(['[[p1p1:]]', '[[p1p1:not-a-uuid]]'])('renders %s as plain text', async (token) => {
+    const c = await renderMarkdown(`${token}\n`);
     expect(c.querySelector('[data-testid="p1p1-embed"]')).not.toBeInTheDocument();
     expect(c).toHaveTextContent(token);
   });
 
-  it('still renders an ordinary card link', () => {
-    const c = renderMarkdown('[[Sol Ring]]\n');
+  it('still renders an ordinary card link', async () => {
+    const c = await renderMarkdown('[[Sol Ring]]\n');
     expect(c.querySelector('a[href="/tool/card/Sol%20Ring"]')).toBeInTheDocument();
   });
 
-  it('lays several tiles out in a row inside a cardrow', () => {
-    const c = renderMarkdown(`<<[[p1p1:${PACK_ID}]][[p1p1:${OTHER_ID}]]>>\n`);
+  it('lays several tiles out in a row inside a cardrow', async () => {
+    const c = await renderMarkdown(`<<[[p1p1:${PACK_ID}]][[p1p1:${OTHER_ID}]]>>\n`);
     expect(c.querySelectorAll('[data-testid="p1p1-embed"]')).toHaveLength(2);
   });
 
@@ -101,8 +108,8 @@ describe('p1p1 embed token', () => {
   // is invalid HTML (the same issue `renderCardImage`'s `inParagraph` flag already solves for
   // `cardimage`) - `oncard` carries the same flag onto the p1p1embed node so the frame picks a
   // span here too.
-  it('renders inline in a paragraph without nesting a block element directly in the <p>', () => {
-    const c = renderMarkdown(`Check this pick: [[p1p1:${PACK_ID}]] what do you think?\n`);
+  it('renders inline in a paragraph without nesting a block element directly in the <p>', async () => {
+    const c = await renderMarkdown(`Check this pick: [[p1p1:${PACK_ID}]] what do you think?\n`);
     const tile = c.querySelector('[data-testid="p1p1-embed"]') as HTMLElement;
     expect(tile).toBeInTheDocument();
     expect(tile.tagName).toBe('SPAN');

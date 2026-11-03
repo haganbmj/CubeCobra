@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
 
@@ -101,7 +101,7 @@ interface RenderEmbedOverrides {
   user?: ReturnType<typeof createUser> | null;
 }
 
-const renderEmbed = (overrides: RenderEmbedOverrides = {}) => {
+const renderEmbed = async (overrides: RenderEmbedOverrides = {}) => {
   mockedUseP1P1Pack.mockReturnValue({
     pack: overrides.pack ?? pack(),
     votes: overrides.votes ?? votes(),
@@ -110,11 +110,16 @@ const renderEmbed = (overrides: RenderEmbedOverrides = {}) => {
     error: null,
     refetch: jest.fn(),
   });
-  return render(
+  const result = render(
     <UserContext.Provider value={overrides.user === null ? null : (overrides.user ?? createUser({ id: 'user-1' }))}>
       <P1P1Embed id={PACK_ID} />
     </UserContext.Provider>,
   );
+  // `P1P1Embed` now checks the pack cache (`p1p1PackCache.ts`) before deciding to fetch, which adds
+  // one async hop before its decision settles past the loading skeleton - flush it so callers can
+  // assert on the resolved tile synchronously afterward.
+  await act(() => Promise.resolve());
+  return result;
 };
 
 describe('P1P1EmbedModal', () => {
@@ -147,14 +152,14 @@ describe('P1P1EmbedModal', () => {
 });
 
 describe('P1P1Embed -> P1P1EmbedModal wiring', () => {
-  it('opens when the tile is clicked', () => {
-    renderEmbed();
+  it('opens when the tile is clicked', async () => {
+    await renderEmbed();
     fireEvent.click(screen.getByTestId('p1p1-embed-tile'));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
   it('updates the tile call to action after voting in the modal', async () => {
-    renderEmbed({ votes: votes({ userVote: undefined }) });
+    await renderEmbed({ votes: votes({ userVote: undefined }) });
     fireEvent.click(screen.getByTestId('p1p1-embed-tile'));
     // The tile's own (non-interactive) card grid stays mounted behind the modal, so the vote must
     // target a card inside the dialog specifically, not just the first image on the page.

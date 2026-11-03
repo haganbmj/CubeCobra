@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
 
@@ -73,7 +73,7 @@ interface RenderEmbedOverrides {
   caption?: string;
 }
 
-const renderEmbed = (overrides: RenderEmbedOverrides) => {
+const renderEmbed = async (overrides: RenderEmbedOverrides) => {
   mockedUseP1P1Pack.mockReturnValue({
     pack: overrides.pack ?? null,
     votes: overrides.votes ?? null,
@@ -82,7 +82,12 @@ const renderEmbed = (overrides: RenderEmbedOverrides) => {
     error: overrides.error ?? null,
     refetch: jest.fn(),
   });
-  return render(<P1P1Embed id={PACK_ID} caption={overrides.caption} />);
+  const result = render(<P1P1Embed id={PACK_ID} caption={overrides.caption} />);
+  // `P1P1Embed` now checks the pack cache (`p1p1PackCache.ts`) before deciding to fetch, which adds
+  // one async hop before its decision settles past the loading skeleton - flush it so callers can
+  // assert on the resolved state synchronously afterward.
+  await act(() => Promise.resolve());
+  return result;
 };
 
 describe('P1P1EmbedTile', () => {
@@ -121,25 +126,25 @@ describe('P1P1EmbedTile', () => {
 });
 
 describe('P1P1Embed states', () => {
-  it('renders a skeleton and no tile while loading', () => {
-    renderEmbed({ loading: true });
+  it('renders a skeleton and no tile while loading', async () => {
+    await renderEmbed({ loading: true });
     expect(screen.getByTestId('p1p1-embed-skeleton')).toBeInTheDocument();
     expect(screen.queryByTestId('p1p1-embed-tile')).not.toBeInTheDocument();
   });
 
-  it('renders the token text when the pack cannot be resolved', () => {
-    const { container } = renderEmbed({ error: 'P1P1 pack not found' });
+  it('renders the token text when the pack cannot be resolved', async () => {
+    const { container } = await renderEmbed({ error: 'P1P1 pack not found' });
     expect(screen.queryByTestId('p1p1-embed-tile')).not.toBeInTheDocument();
     expect(container).toHaveTextContent(`[[p1p1:${PACK_ID}]]`);
   });
 
-  it('reconstructs the token with its caption when unresolvable', () => {
-    const { container } = renderEmbed({ error: 'P1P1 pack not found', caption: 'Sol Ring or Force of Will?' });
+  it('reconstructs the token with its caption when unresolvable', async () => {
+    const { container } = await renderEmbed({ error: 'P1P1 pack not found', caption: 'Sol Ring or Force of Will?' });
     expect(container).toHaveTextContent(`[[p1p1:${PACK_ID}|Sol Ring or Force of Will?]]`);
   });
 
-  it('renders the resolved tile once the pack, votes and cube all load', () => {
-    renderEmbed({ pack: pack(), votes: votes(), cube: defaultCube });
+  it('renders the resolved tile once the pack, votes and cube all load', async () => {
+    await renderEmbed({ pack: pack(), votes: votes(), cube: defaultCube });
     expect(screen.getByTestId('p1p1-embed-tile')).toBeInTheDocument();
     expect(screen.queryByTestId('p1p1-embed-skeleton')).not.toBeInTheDocument();
   });

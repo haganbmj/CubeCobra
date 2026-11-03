@@ -4,7 +4,20 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import '@testing-library/jest-dom';
 
+// Jest's jsdom test environment doesn't forward Node's global `structuredClone`, which
+// fake-indexeddb needs to clone values on write (see the identical polyfill in
+// `p1p1PackCache.test.ts`). Only the "cached pack" describe block below installs a real (fake)
+// IndexedDB, but the polyfill itself is harmless for every other test in this file.
+if (typeof structuredClone === 'undefined') {
+  (globalThis as any).structuredClone = (value: unknown) => JSON.parse(JSON.stringify(value));
+}
+
+import { IDBFactory } from 'fake-indexeddb';
+
+import { P1P1Pack } from '@utils/datatypes/P1P1Pack';
+
 import { EmbedBudgetContextProvider, MAX_PAGE_EMBEDS, useEmbedBudget } from 'contexts/EmbedBudgetContext';
+import { writePack } from 'utils/p1p1PackCache';
 
 import P1P1Embed from 'components/markdown/P1P1Embed';
 
@@ -219,6 +232,43 @@ describe('P1P1Embed budget gating', () => {
       expect(screen.getAllByTestId('p1p1-embed-tile')).toHaveLength(2);
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A pack body never changes after creation, so these tests populate the client-side cache
+// (`p1p1PackCache.ts`) directly and confirm a hit never touches `claim`'s shared ceiling, unlike
+// every other test in this file (which leave `window.indexedDB` unset and so never populate it).
+describe('cached pack skips the budget', () => {
+  let originalIndexedDB: typeof window.indexedDB | undefined;
+
+  const cachedPackFixture = (id: string): P1P1Pack => ({
+    id,
+    createdBy: 'user-1',
+    cubeId: 'cube-1',
+    date: 1700000000000,
+    votesByUser: {},
+    cards: [],
+    createdByUsername: 'dekkerglen',
+    seed: 'seed',
+    source: 'random',
+  });
+
+  beforeEach(() => {
+    originalIndexedDB = window.indexedDB;
+    (window as any).indexedDB = new IDBFactory();
+  });
+
+  afterEach(() => {
+    (window as any).indexedDB = originalIndexedDB;
+  });
+
+  it('does not consume a budget slot when the pack is cached', async () => {
+    await writePack(PACK_ID, cachedPackFixture(PACK_ID));
+
+    renderEmbeds([PACK_ID, OTHER_ID], { max: 1 });
+
+    // Both resolve to tiles: OTHER_ID takes the sole budget slot, and PACK_ID never needed one.
+    expect(await screen.findAllByTestId('p1p1-embed-tile')).toHaveLength(2);
   });
 });
 
