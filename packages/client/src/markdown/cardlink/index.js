@@ -22,7 +22,7 @@ function splitFirst(value, delimiter) {
   return [value.slice(0, index), value.slice(index + delimiter.length)];
 }
 
-function onp1p1(node, remainder) {
+function onp1p1(node, remainder, allowEmbeds) {
   /* Tables don't allow raw pipes (|) in their cell contents unless escaped - see the comment on
    * markCardlinksInTables below - so mirror the cardlink id/name split: prefer an escaped `\|` split
    * over a plain `|` split, and in either case split on the FIRST occurrence only so a caption
@@ -33,9 +33,10 @@ function onp1p1(node, remainder) {
     [id, caption] = splitFirst(remainder, '|');
   }
 
-  if (!UUID_REGEX.test(id)) {
-    // Malformed id: render the original token source as plain text rather than falling through to
-    // an autocard link literally named "p1p1:<whatever was typed>".
+  if (!allowEmbeds || !UUID_REGEX.test(id)) {
+    // Either the surface hasn't opted into embeds, or the id is malformed: render the original
+    // token source as plain text rather than falling through to an autocard link literally named
+    // "p1p1:<whatever was typed>".
     node.type = 'text';
     node.value = `[[${node.value}]]`;
     delete node.data.hName;
@@ -52,9 +53,9 @@ function onp1p1(node, remainder) {
   };
 }
 
-function oncard(node, index, parent) {
+function oncard(node, index, parent, allowEmbeds) {
   if (node.value.startsWith(P1P1_PREFIX)) {
-    onp1p1(node, node.value.slice(P1P1_PREFIX.length));
+    onp1p1(node, node.value.slice(P1P1_PREFIX.length), allowEmbeds);
     return;
   }
 
@@ -124,13 +125,14 @@ function markCardlinksInTables(tree) {
   });
 }
 
-function cardlinks() {
+function cardlinks(options = {}) {
+  const { allowEmbeds = false } = options;
   const data = this.data();
   add(data, 'micromarkExtensions', syntax);
   add(data, 'fromMarkdownExtensions', fromMarkdown);
   return (tree) => {
     markCardlinksInTables(tree);
-    visit(tree, 'cardlink', oncard);
+    visit(tree, 'cardlink', (node, index, parent) => oncard(node, index, parent, allowEmbeds));
   };
 }
 

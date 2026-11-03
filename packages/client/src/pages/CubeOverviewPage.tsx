@@ -30,7 +30,7 @@ const CubeOverview: React.FC<CubeOverviewProps> = ({ cards, cube }) => {
           {cube.primerTabs[0]?.content && (
             <Card>
               <CardBody>
-                <SafeMarkdown markdown={cube.primerTabs[0].content} />
+                <SafeMarkdown markdown={cube.primerTabs[0].content} allowEmbeds />
               </CardBody>
             </Card>
           )}

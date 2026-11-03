@@ -10,7 +10,15 @@ import SyntaxHighlighter from 'react-syntax-highlighter';
 import { a11yDark, a11yLight } from 'react-syntax-highlighter/dist/cjs/styles/hljs';
 import reactNodeToText from 'utils/reactNodeToText';
 
-import { ALL_PLUGINS, NO_CARDROW_PLUGINS, NO_CONTAINER_PLUGINS, REHYPE_PLUGINS } from 'markdown/parser';
+import {
+  ALL_PLUGINS,
+  ALL_PLUGINS_WITH_EMBEDS,
+  NO_CARDROW_PLUGINS,
+  NO_CARDROW_PLUGINS_WITH_EMBEDS,
+  NO_CONTAINER_PLUGINS,
+  NO_CONTAINER_PLUGINS_WITH_EMBEDS,
+  REHYPE_PLUGINS,
+} from 'markdown/parser';
 
 import { Flexbox } from './base/Layout';
 import Link, { LinkProps } from './base/Link';
@@ -350,6 +358,10 @@ export interface MarkdownProps {
   // Nullable by design: the component coerces with `markdown?.toString() ?? ''`, and several callers
   // pass a value that may be absent.
   markdown: string | null | undefined;
+  // Gates the `[[p1p1:<id>]]` pack embed token. Default off: `Comment` renders this same component for
+  // arbitrary user-submitted text, and a pasted pack there is both a size and a load-budget problem.
+  // Call sites opt in explicitly; everywhere else the token falls back to plain text.
+  allowEmbeds?: boolean;
 }
 
 // Two independent complexity guards, both O(n) pre-scans that swap in a reduced plugin set rather
@@ -444,13 +456,17 @@ export const cardrowScanWork = (text: string): number => {
 // worst legitimate case measured (256,500) and 1.1% of an attack - roughly 60ms of tokenizer work.
 export const MAX_CARDROW_WORK = 5_000_000;
 
-const Markdown: React.FC<MarkdownProps> = ({ markdown }) => {
+const Markdown: React.FC<MarkdownProps> = ({ markdown, allowEmbeds = false }) => {
   const markdownStr = markdown?.toString() ?? '';
   const remarkPlugins = useMemo(() => {
-    if (maxCenteringDepth(markdownStr) > MAX_CENTERING_DEPTH) return NO_CONTAINER_PLUGINS;
-    if (cardrowScanWork(markdownStr) > MAX_CARDROW_WORK) return NO_CARDROW_PLUGINS;
-    return ALL_PLUGINS;
-  }, [markdownStr]);
+    if (maxCenteringDepth(markdownStr) > MAX_CENTERING_DEPTH) {
+      return allowEmbeds ? NO_CONTAINER_PLUGINS_WITH_EMBEDS : NO_CONTAINER_PLUGINS;
+    }
+    if (cardrowScanWork(markdownStr) > MAX_CARDROW_WORK) {
+      return allowEmbeds ? NO_CARDROW_PLUGINS_WITH_EMBEDS : NO_CARDROW_PLUGINS;
+    }
+    return allowEmbeds ? ALL_PLUGINS_WITH_EMBEDS : ALL_PLUGINS;
+  }, [markdownStr, allowEmbeds]);
   return (
     <Flexbox className="markdown" direction="col" gap="2">
       <ReactMarkdown remarkPlugins={remarkPlugins as any} rehypePlugins={REHYPE_PLUGINS} components={RENDERERS as any}>

@@ -11,11 +11,25 @@ import centering from 'markdown/centering';
 import symbols from 'markdown/symbols';
 import userlink from 'markdown/userlink';
 
+// `cardlink` renders `[[p1p1:<id>]]` tokens as embed tiles only when told to; every other surface
+// (and findUserLinks, below) gets the default `allowEmbeds: false` and the token falls back to plain
+// text. See Markdown.tsx's `allowEmbeds` prop, which selects between the two sets below per document.
+const cardlinkFor = (allowEmbeds) => [cardlink, { allowEmbeds }];
+
 // remark plugins that are necessary in all use-cases
-const BASE_PLUGINS = [cardrow, centering, math, cardlink, [gfm, { singleTilde: false }], symbols];
+const buildBasePlugins = (allowEmbeds) => [
+  cardrow,
+  centering,
+  math,
+  cardlinkFor(allowEmbeds),
+  [gfm, { singleTilde: false }],
+  symbols,
+];
+const BASE_PLUGINS = buildBasePlugins(false);
 
 // all remark plugins used in the parser
 export const ALL_PLUGINS = [...BASE_PLUGINS, userlink, breaks];
+export const ALL_PLUGINS_WITH_EMBEDS = [...buildBasePlugins(true), userlink, breaks];
 
 // Fallback plugin set that omits the custom container extensions `centering` (>>> <<<)
 // and `cardrow` (<< >>). Their hand-written tokenizers are O(n^2) and recurse one stack
@@ -24,13 +38,45 @@ export const ALL_PLUGINS = [...BASE_PLUGINS, userlink, breaks];
 // Markdown.tsx trips, we parse with this set instead: the `>>>`/`<<<`/`<<`/`>>` markers
 // fall back to plain/blockquote rendering, but every other feature (cards, symbols, math,
 // gfm, ...) still works.
-export const NO_CONTAINER_PLUGINS = [math, cardlink, [gfm, { singleTilde: false }], symbols, userlink, breaks];
+export const NO_CONTAINER_PLUGINS = [
+  math,
+  cardlinkFor(false),
+  [gfm, { singleTilde: false }],
+  symbols,
+  userlink,
+  breaks,
+];
+export const NO_CONTAINER_PLUGINS_WITH_EMBEDS = [
+  math,
+  cardlinkFor(true),
+  [gfm, { singleTilde: false }],
+  symbols,
+  userlink,
+  breaks,
+];
 
 // Fallback for the cardrow complexity guard. `cardrow`'s tokenizer scans forward from every `<<` on a
 // line, so cost grows as (number of `<<` starts) x (distance each scans) - quadratic on a long line of
 // them. Only cardrow is implicated, so this set keeps `centering`: an author who trips the cardrow
 // guard should not silently lose `>>> <<<` as well.
-export const NO_CARDROW_PLUGINS = [centering, math, cardlink, [gfm, { singleTilde: false }], symbols, userlink, breaks];
+export const NO_CARDROW_PLUGINS = [
+  centering,
+  math,
+  cardlinkFor(false),
+  [gfm, { singleTilde: false }],
+  symbols,
+  userlink,
+  breaks,
+];
+export const NO_CARDROW_PLUGINS_WITH_EMBEDS = [
+  centering,
+  math,
+  cardlinkFor(true),
+  [gfm, { singleTilde: false }],
+  symbols,
+  userlink,
+  breaks,
+];
 
 // rehype plugins used for all Markdown. There is no restricted variant: the `limited` mode that once
 // existed dropped `rehype-slug` and `rehype-autolink-headings` from full content, and both were removed

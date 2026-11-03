@@ -31,7 +31,7 @@ const Article: React.FC<ArticleProps> = ({ article }) => {
         </Flexbox>
       </CardHeader>
       <CardBody>
-        <Markdown markdown={article.body ?? ''} />
+        <Markdown markdown={article.body ?? ''} allowEmbeds />
       </CardBody>
       <div className="border-t border-border">
         <CommentsSection parentType="article" parent={article.id} collapse={false} />

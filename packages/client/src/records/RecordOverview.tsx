@@ -38,7 +38,7 @@ const RecordOverview: React.FC<RecordOverviewProps> = ({ record }) => {
         </Text>
         {record.description && (
           <div className="mt-1">
-            <SafeMarkdown markdown={record.description} />
+            <SafeMarkdown markdown={record.description} allowEmbeds />
           </div>
         )}
         <Flexbox direction="row" gap="4" wrap="wrap" className="mt-1">

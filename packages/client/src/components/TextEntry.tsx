@@ -15,6 +15,9 @@ interface TextEntryProps {
   maxLength?: number;
   rows?: number;
   showCharacterLimit?: boolean;
+  // Forwarded to the Preview tab's Markdown render. Default off; set explicitly by callers backing
+  // surfaces that render `[[p1p1:<id>]]` embeds outside the editor too, so the preview matches.
+  allowEmbeds?: boolean;
 }
 
 const TextEntry: React.FC<TextEntryProps> = ({
@@ -23,6 +26,7 @@ const TextEntry: React.FC<TextEntryProps> = ({
   maxLength = 1000,
   rows = 4,
   showCharacterLimit = true,
+  allowEmbeds = false,
 }) => {
   const [tab, setTab] = useState('0');
 
@@ -52,7 +56,7 @@ const TextEntry: React.FC<TextEntryProps> = ({
                 label: 'Preview',
                 content: (
                   <CardBody>
-                    <Markdown markdown={value} />
+                    <Markdown markdown={value} allowEmbeds={allowEmbeds} />
                   </CardBody>
                 ),
                 onClick: () => setTab('1'),

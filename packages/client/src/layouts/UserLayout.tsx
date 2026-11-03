@@ -161,7 +161,10 @@ const UserLayout: React.FC<UserLayoutProps> = ({
 
       <div className="px-3 pb-3">
         <div className="border-t border-border pt-3">
-          <SafeMarkdown markdown={user.about || '_This user has not yet filled out their about section._'} />
+          <SafeMarkdown
+            markdown={user.about || '_This user has not yet filled out their about section._'}
+            allowEmbeds
+          />
         </div>
       </div>
     </div>

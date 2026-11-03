@@ -78,7 +78,7 @@ const CreateBlogModal: React.FC<CreateBlogModalProps> = ({ isOpen, setOpen, post
         <Text lg semibold>
           Body:
         </Text>
-        <TextEntry name="markdown" value={markdown} setValue={setMarkdown} maxLength={30000} />
+        <TextEntry name="markdown" value={markdown} setValue={setMarkdown} maxLength={30000} allowEmbeds />
         {alerts.map(({ color, message }) => (
           <Alert key={message} color={color} className="mt-2">
             {message}

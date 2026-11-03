@@ -206,7 +206,7 @@ const WikiArticle: React.FC<{ page: NonNullable<WikiPageProps['page']> }> = ({ p
                 </Text>
                 {page.description && <Text className="text-text-secondary">{page.description}</Text>}
               </Flexbox>
-              <SafeMarkdown markdown={page.markdown} />
+              <SafeMarkdown markdown={page.markdown} allowEmbeds />
             </CardBody>
           </Card>
           {page.editUrl && (

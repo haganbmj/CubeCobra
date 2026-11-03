@@ -47,7 +47,7 @@ const PrimerView: React.FC<PrimerViewProps> = ({ primerTabs, tags }) => {
   const content = selectedTab?.content && (
     <Card>
       <CardBody>
-        <SafeMarkdown markdown={selectedTab.content} />
+        <SafeMarkdown markdown={selectedTab.content} allowEmbeds />
       </CardBody>
     </Card>
   );
