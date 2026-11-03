@@ -45,6 +45,28 @@ interface P1P1FetchResult {
   error: string | null;
 }
 
+// Mirrors `useP1P1Pack`'s own fetch + parse logic exactly, as a plain (non-hook) function. Used
+// only as a recovery path: if the owning embed unmounts before its own `useP1P1Pack`-driven fetch
+// settles (e.g. `TextEntry`'s Preview/Source tabs unmount `Markdown` entirely on every switch), no
+// component is left to observe that fetch's outcome, and `reserveFetch` never re-grants the same
+// key to a later embed - so without this, any subscriber (current or future) would wait forever on
+// a key whose sole owner is gone. Being a plain function rather than a hook is what lets it be
+// called from a `useEffect` cleanup, which cannot call hooks.
+const fetchP1P1PackResult = async (id: string): Promise<P1P1FetchResult> => {
+  try {
+    const response = await fetch(`/tool/api/getp1p1/${id}`);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to fetch P1P1 pack');
+    }
+    const data = await response.json();
+    return { pack: data.pack, votes: data.votes, cube: data.cube, error: null };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+    return { pack: null, votes: null, cube: null, error: errorMessage };
+  }
+};
+
 /**
  * Renders a `[[p1p1:<id>]]` embed token as a live tile: fetches the pack via `useP1P1Pack` and shows
  * a loading skeleton, the resolved tile, or - if the pack can't be resolved - the original token
@@ -66,6 +88,12 @@ interface P1P1FetchResult {
  * the request. It subscribes to the fetching embed's result instead, and renders the identical
  * tile, or the identical unresolvable fallback, once that arrives - never its own "Load This",
  * which would wrongly suggest the reader lost something a click could fix.
+ *
+ * The owning embed can itself unmount before its fetch settles - e.g. switching `TextEntry`'s
+ * Preview tab away and back unmounts and remounts `Markdown` entirely, and `reserveFetch` never
+ * re-grants an already-owned key, so the fresh embed that remounts is a subscriber, not a new
+ * owner. The cleanup effect below recovers from this with an independent fetch, so a subscriber -
+ * present now or arriving later - is never left waiting on an owner that's gone.
  */
 const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph }) => {
   const ref = useRef<HTMLElement>(null);
@@ -121,6 +149,23 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
     if (!hasStartedFetch.current) return;
     publishFetchResult<P1P1FetchResult>(id, { pack: ownPack, votes: ownVotes, cube: ownCube, error: ownError });
   }, [shouldFetch, ownLoading, ownPack, ownVotes, ownCube, ownError, id, publishFetchResult]);
+
+  // Recovery for the owner-unmounts-before-settling race: `isOwner` is read from a ref, not the
+  // state variable directly, because this effect's dependency array is intentionally empty (its
+  // cleanup must run only on unmount, not on every render) - an empty-dependency effect's closure
+  // otherwise only ever sees the first render's values. `publishFetchResult`/`getFetchResult` are
+  // stable across renders regardless, so they don't need the same treatment.
+  const isOwnerRef = useRef(isOwner);
+  isOwnerRef.current = isOwner;
+  useEffect(() => {
+    return () => {
+      if (!isOwnerRef.current) return;
+      if (getFetchResult<P1P1FetchResult>(id) !== undefined) return; // already settled - nothing to recover
+      fetchP1P1PackResult(id).then((result) => publishFetchResult<P1P1FetchResult>(id, result));
+    };
+    // Intentionally empty - see comment above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // A duplicate never fetches on its own - it subscribes to the owning embed's result instead,
   // checking for one that already arrived first so a late subscriber doesn't wait forever for a

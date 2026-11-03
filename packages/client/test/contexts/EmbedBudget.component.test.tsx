@@ -126,6 +126,18 @@ const renderEmbeds = (ids: string[], { max, intersecting = true }: RenderEmbedsO
   return result;
 };
 
+// Mount-controllable wrapper standing in for `TextEntry`'s Preview/Source tab switch, which mounts
+// and unmounts `Markdown` (and so every embed in it) entirely rather than hiding it.
+const ToggleableEmbed: React.FC<{ id: string; mounted: boolean }> = ({ id, mounted }) =>
+  mounted ? <P1P1Embed id={id} /> : null;
+
+const renderToggleable = (id: string, max: number) =>
+  render(
+    <EmbedBudgetContextProvider max={max}>
+      <ToggleableEmbed id={id} mounted />
+    </EmbedBudgetContextProvider>,
+  );
+
 describe('EmbedBudgetContext claim', () => {
   it('grants slots up to the ceiling and refuses the rest', () => {
     expect(renderClaims(['a', 'b', 'c'], { max: 2 })).toEqual([true, true, false]);
@@ -191,6 +203,71 @@ describe('P1P1Embed budget gating', () => {
     await flushPendingFetch();
     fireEvent.click(screen.getByRole('button', { name: /Load This/ }));
     await flushPendingFetch();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// `TextEntry`'s Preview/Source tabs mount and unmount `Markdown` - and every embed inside it -
+// entirely on every switch, so the owning embed can disappear before its own fetch ever settles.
+// `reserveFetch` never re-grants an already-owned key, so a fresh embed that remounts afterward is
+// a subscriber, not a new owner - it must still resolve rather than wait on an owner that's gone.
+describe('recovery when the owning embed unmounts before its fetch settles', () => {
+  // Both tests leave the owner's own request permanently pending (never resolving), standing in
+  // for a real request whose outcome a departed component can no longer act on, and resolve a
+  // second ("recovery") request instead - asserting on that second call is what proves the
+  // resolution came from the cleanup's own fetch, not from the original request somehow still
+  // reaching the new embed.
+  const mockOwnerPendingForever = (recover: () => Promise<{ ok: boolean; json: () => Promise<any> }>) => {
+    let callCount = 0;
+    fetchMock.mockImplementation(() => {
+      callCount += 1;
+      if (callCount === 1) return new Promise(() => {});
+      return recover();
+    });
+  };
+
+  const unmountThenRemount = (rerender: (ui: React.ReactElement) => void) => {
+    rerender(
+      <EmbedBudgetContextProvider max={5}>
+        <ToggleableEmbed id={PACK_ID} mounted={false} />
+      </EmbedBudgetContextProvider>,
+    );
+    rerender(
+      <EmbedBudgetContextProvider max={5}>
+        <ToggleableEmbed id={PACK_ID} mounted />
+      </EmbedBudgetContextProvider>,
+    );
+    IntersectionObserverStub.triggerAll(true);
+  };
+
+  it('still resolves and renders the tile for a later embed of the same pack', async () => {
+    mockOwnerPendingForever(() => Promise.resolve({ ok: true, json: async () => packResponse(PACK_ID) }));
+
+    const { rerender } = renderToggleable(PACK_ID, 5);
+    IntersectionObserverStub.triggerAll(true);
+    await flushPendingFetch();
+
+    unmountThenRemount(rerender);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('p1p1-embed-tile')).toBeInTheDocument();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('renders the unresolvable fallback, not a permanent skeleton, when the recovery fetch fails', async () => {
+    mockOwnerPendingForever(() => Promise.resolve({ ok: false, json: async () => ({ error: 'P1P1 pack not found' }) }));
+
+    const { rerender } = renderToggleable(PACK_ID, 5);
+    IntersectionObserverStub.triggerAll(true);
+    await flushPendingFetch();
+
+    unmountThenRemount(rerender);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('p1p1-embed')).toHaveTextContent(`[[p1p1:${PACK_ID}]]`);
+    });
+    expect(screen.queryByTestId('p1p1-embed-tile')).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
