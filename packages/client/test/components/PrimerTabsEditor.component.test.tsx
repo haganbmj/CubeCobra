@@ -17,7 +17,11 @@ jest.mock('components/DND', () => {
 
 jest.mock('components/Markdown', () => ({
   __esModule: true,
-  default: ({ markdown }: { markdown: string }) => <div>{markdown}</div>,
+  default: ({ markdown, allowEmbeds }: { markdown: string; allowEmbeds?: boolean }) => (
+    <div data-testid="markdown-preview" data-allow-embeds={allowEmbeds}>
+      {markdown}
+    </div>
+  ),
   SafeMarkdown: ({ markdown }: { markdown: string }) => <div>{markdown}</div>,
 }));
 
@@ -191,5 +195,17 @@ describe('PrimerTabsEditor', () => {
     const counter = screen.getByText('100,001 / 100,000 characters (all tabs)');
     expect(counter.className).toContain('text-red-500');
     expect(screen.getByText('Over the limit — shorten the primer before saving.')).toBeInTheDocument();
+  });
+
+  it('enables embeds in the preview tab so authors can see embeds before publishing', () => {
+    render(<Harness initial={[{ title: 'Primer', content: 'Check this: [[p1p1:demo-id]]' }]} />);
+
+    // Click the Preview tab
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    // Verify the Markdown component receives allowEmbeds={true}
+    const preview = screen.getByTestId('markdown-preview');
+    expect(preview).toHaveAttribute('data-allow-embeds', 'true');
+    expect(preview).toHaveTextContent('Check this: [[p1p1:demo-id]]');
   });
 });

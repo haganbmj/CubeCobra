@@ -153,6 +153,7 @@ const PrimerTabsEditor: React.FC<PrimerTabsEditorProps> = ({ tabs, setTabs, sele
         maxLength={PRIMER_MAX_TOTAL_CHARS}
         showCharacterLimit={false}
         rows={20}
+        allowEmbeds
       />
 
       <Flexbox direction="row" gap="4" wrap="wrap">
