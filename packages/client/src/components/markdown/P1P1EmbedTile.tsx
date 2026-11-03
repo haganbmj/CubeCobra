@@ -2,8 +2,18 @@ import React, { useMemo } from 'react';
 
 import { cardName, detailsToCard } from '@utils/cardutil';
 import { P1P1Pack, P1P1VoteSummary } from '@utils/datatypes/P1P1Pack';
+import { packGridDimensions } from '@utils/packGrid';
 
-import CardGrid from '../card/CardGrid';
+import FoilCardImage from '../FoilCardImage';
+
+// Below roughly this width a card stops reading as a card at all - the art is a smudge and the
+// frame colour is all that survives. It bounds how far a narrow tile will subdivide.
+const MIN_CARD_WIDTH_PX = 70;
+// Must match the `gap-1` on the grid. The track calculation has to subtract the gaps explicitly:
+// `100% / columns` ignores them, so the tracks overflow by a few pixels and `auto-fill` quietly
+// drops a column - which is how a full-width tile ended up five across and a row taller than the
+// pack's natural shape.
+const GRID_GAP_PX = 4;
 
 export interface P1P1EmbedTileProps {
   pack: P1P1Pack;
@@ -17,9 +27,8 @@ export interface P1P1EmbedTileProps {
  * A bounded preview of a P1P1 pack, rendered inline in Markdown. Nothing inside is independently
  * interactive: the tile as a whole is a single button whose visible call to action ("Make your
  * pick" / "See results") is also its accessible name, and it hands off to `onExpand` for the full
- * voting experience (the detail modal lands in a later task). `CardGrid` is given neither `hrefFn`
- * nor `onClick`, and autocard is turned off per card, so no card inside can be clicked or hovered
- * on its own - only the surrounding button reacts.
+ * voting experience. The cards are plain images - no link, no click handler, no autocard - so
+ * nothing inside can be clicked or hovered on its own and only the surrounding button reacts.
  */
 const P1P1EmbedTile: React.FC<P1P1EmbedTileProps> = ({ pack, votes, cube, caption, onExpand }) => {
   const cards = useMemo(
@@ -46,6 +55,18 @@ const P1P1EmbedTile: React.FC<P1P1EmbedTileProps> = ({ pack, votes, cube, captio
   const hasVoted = votes.userVote !== undefined;
   const pickedCard = hasVoted ? cards[votes.userVote as number] : undefined;
 
+  // Column count has two constraints, and CSS can honour both at once. The pack's size sets an
+  // upper bound - the same table `generatePackImage` uses, so a pack keeps one shape wherever it
+  // appears - while a minimum track width stops a narrow container from honouring that bound at the
+  // cost of legibility. `auto-fill` then picks the largest column count satisfying both: six across
+  // in a full-width tile, dropping to four in the ~300px one a `<<...>>` row gives each pack.
+  //
+  // This is why the grid is hand-rolled rather than `CardGrid`: its breakpoints respond to the
+  // viewport, so a half-width tile still asked for twelve columns and drew 27px cards.
+  const { columns } = packGridDimensions(cards.length);
+  const idealTrack = `calc((100% - ${(columns - 1) * GRID_GAP_PX}px) / ${columns})`;
+  const gridTemplateColumns = `repeat(auto-fill, minmax(max(${MIN_CARD_WIDTH_PX}px, ${idealTrack}), 1fr))`;
+
   return (
     <button
       type="button"
@@ -60,8 +81,10 @@ const P1P1EmbedTile: React.FC<P1P1EmbedTileProps> = ({ pack, votes, cube, captio
       )}
       <span className="block font-semibold">{cube.name}</span>
       <span className="block text-xs text-muted-foreground">{attribution}</span>
-      <span className="block max-h-56 overflow-hidden">
-        <CardGrid cards={cards} xs={4} sm={6} md={8} lg={10} xl={12} xxl={12} cardProps={{ autocard: false }} />
+      <span data-testid="p1p1-embed-grid" className="grid gap-1" style={{ gridTemplateColumns }}>
+        {cards.map((card, index) => (
+          <FoilCardImage key={index} card={card} wrapperTag="span" />
+        ))}
       </span>
       <span className="block text-xs text-muted-foreground">
         {votes.totalVotes} {votes.totalVotes === 1 ? 'vote' : 'votes'}

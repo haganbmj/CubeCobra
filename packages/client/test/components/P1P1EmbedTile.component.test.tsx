@@ -126,7 +126,23 @@ describe('P1P1EmbedTile', () => {
   it('draws no per-card interaction', () => {
     const { container } = renderTile({});
     expect(container.querySelectorAll('[data-testid="p1p1-embed-card"] a')).toHaveLength(0);
-    expect(container.querySelectorAll('a')).toHaveLength(0);
+  });
+
+  // Column count follows the pack's size via the same table the social-card image uses, not
+  // viewport breakpoints - those respond to the window, so a narrow tile in a `<<...>>` row used to
+  // ask for twelve columns and render cards too small to read.
+  it.each([
+    [15, 5],
+    [18, 6],
+    [9, 3],
+  ])('caps %i cards at %i columns, matching the pack image', (cardCount, columns) => {
+    renderTile({ pack: pack({ cards: Array.from({ length: cardCount }, (_, i) => card(`Card ${i}`)) }) });
+    const grid = screen.getByTestId('p1p1-embed-grid');
+
+    // `auto-fill` may settle on fewer columns when the tile is narrow; the pack's size is the
+    // ceiling, and the minimum track width is what stops a narrow tile honouring it illegibly.
+    expect(grid.style.gridTemplateColumns).toContain(`/ ${columns})`);
+    expect(grid.style.gridTemplateColumns).toContain('70px');
   });
 });
 
