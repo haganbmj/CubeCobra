@@ -19,13 +19,8 @@
 import { DeleteCommand, DynamoDBDocumentClient, QueryCommandInput, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { NativeAttributeValue } from '@aws-sdk/lib-dynamodb';
 import Card from '@utils/datatypes/Card';
-import {
-  P1P1Pack,
-  P1P1PackDynamoData,
-  P1P1PackS3Data,
-  P1P1VoteResult,
-  P1P1VoteSummary,
-} from '@utils/datatypes/P1P1Pack';
+import { P1P1Pack, P1P1PackDynamoData, P1P1PackS3Data, P1P1VoteSummary } from '@utils/datatypes/P1P1Pack';
+import { buildVoteSummary } from '@utils/p1p1VoteSummary';
 import { cardFromId } from 'serverutils/carddb';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -434,23 +429,7 @@ export class P1P1PackDynamoDao extends BaseDynamoDao<P1P1PackExtended, Unhydrate
    * Gets vote summary for a pack.
    */
   public getVoteSummary(pack: P1P1PackExtended, currentUserId?: string): P1P1VoteSummary {
-    const { totalVotes, counts: voteCounts, userVote } = countVotes(pack.votesByUser, currentUserId);
-
-    // Create results array based on number of cards in pack
-    const cardCount = pack.cards.length;
-    const results: P1P1VoteResult[] = Array.from({ length: cardCount }, (_, index) => ({
-      cardIndex: index,
-      voteCount: voteCounts[index] || 0,
-      percentage: totalVotes > 0 ? ((voteCounts[index] || 0) / totalVotes) * 100 : 0,
-    }));
-
-    return {
-      totalVotes,
-      results,
-      userVote,
-      botPick: pack.botPick,
-      botWeights: pack.botWeights,
-    };
+    return buildVoteSummary(countVotes(pack.votesByUser, currentUserId), pack);
   }
 
   /**
