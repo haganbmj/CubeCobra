@@ -28,9 +28,11 @@ const useP1P1Pack = (packId: string | null): UseP1P1PackResult => {
 
     // Started alongside the network fetch, not awaited before it - keeping `fetch` the first (and
     // only) await in this function's own control flow avoids delaying the request behind a local
-    // IndexedDB read. A pack's cards never change after it's generated, so if this resolves with a
-    // hit, the body can render immediately; `votes` (and `cube`) still always come from the network
-    // either way, since `p1p1PackCache.ts` never caches vote state.
+    // IndexedDB read. This doesn't save the request itself: `votes` (and `cube`) always have to
+    // come from the network regardless of a cache hit, since `getp1p1` is the only endpoint and
+    // `p1p1PackCache.ts` never caches vote state, so the server still does its usual DynamoDB get
+    // plus S3 read either way. What a hit buys is purely client-side: the pack body can paint
+    // immediately from IndexedDB instead of waiting on this response to settle.
     let cacheHit = false;
     readPack(packId).then((cached) => {
       if (!cached) return;
