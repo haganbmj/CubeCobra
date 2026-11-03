@@ -50,6 +50,33 @@ export interface UnhydratedP1P1Pack extends P1P1PackDynamoData {
   dateLastUpdated: number;
 }
 
+/**
+ * Counts a pack's votes from its DynamoDB half alone.
+ *
+ * Deliberately a module-level function rather than a method: both the full read path
+ * (`getVoteSummary`, which expands these counts into a fixed-length results array using the pack's
+ * S3-resident cards) and the votes-only route (which has no S3 data and lets the client expand them)
+ * call it, so the two paths cannot drift. `counts` is sparse - only indices that received a vote.
+ */
+export const countVotes = (
+  votesByUser: Record<string, number> | undefined,
+  currentUserId?: string,
+): { totalVotes: number; counts: Record<number, number>; userVote?: number } => {
+  const votes = votesByUser || {};
+  const counts: Record<number, number> = {};
+  let userVote: number | undefined;
+
+  Object.entries(votes).forEach(([userId, cardIndex]) => {
+    const cardIdx = Number(cardIndex);
+    counts[cardIdx] = (counts[cardIdx] || 0) + 1;
+    if (currentUserId && userId === currentUserId) {
+      userVote = cardIdx;
+    }
+  });
+
+  return { totalVotes: Object.keys(votes).length, counts, userVote };
+};
+
 export class P1P1PackDynamoDao extends BaseDynamoDao<P1P1PackExtended, UnhydratedP1P1Pack> {
   constructor(dynamoClient: DynamoDBDocumentClient, tableName: string) {
     super(dynamoClient, tableName);
@@ -407,20 +434,7 @@ export class P1P1PackDynamoDao extends BaseDynamoDao<P1P1PackExtended, Unhydrate
    * Gets vote summary for a pack.
    */
   public getVoteSummary(pack: P1P1PackExtended, currentUserId?: string): P1P1VoteSummary {
-    const votesByUser = pack.votesByUser || {};
-    const totalVotes = Object.keys(votesByUser).length;
-
-    // Count votes per card
-    const voteCounts: { [cardIndex: number]: number } = {};
-    let userVote: number | undefined;
-
-    Object.entries(votesByUser).forEach(([userId, cardIndex]) => {
-      const cardIdx = Number(cardIndex); // Ensure it's a number
-      voteCounts[cardIdx] = (voteCounts[cardIdx] || 0) + 1;
-      if (currentUserId && userId === currentUserId) {
-        userVote = cardIdx;
-      }
-    });
+    const { totalVotes, counts: voteCounts, userVote } = countVotes(pack.votesByUser, currentUserId);
 
     // Create results array based on number of cards in pack
     const cardCount = pack.cards.length;
