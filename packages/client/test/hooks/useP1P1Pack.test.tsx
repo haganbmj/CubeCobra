@@ -65,7 +65,7 @@ const fullResponse = (pack: P1P1Pack) => ({
       botPick: 1,
       botWeights: [0.3, 0.7],
     },
-    cube: { name: 'Vintage Cube', shortId: 'vintage' },
+    cube: { id: 'cube-uuid', name: 'Vintage Cube', shortId: 'vintage' },
   }),
 });
 
@@ -74,7 +74,7 @@ const votesOnlyResponse = () => ({
   json: async () => ({
     success: true,
     votes: { totalVotes: 1, counts: { 0: 1 }, userVote: 0 },
-    cube: { name: 'Vintage Cube', shortId: 'vintage' },
+    cube: { id: 'cube-uuid', name: 'Vintage Cube', shortId: 'vintage' },
   }),
 });
 

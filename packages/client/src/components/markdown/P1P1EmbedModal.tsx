@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { P1P1Pack, P1P1VoteSummary } from '@utils/datatypes/P1P1Pack';
+import { getCubeId } from '@utils/Util';
 
 import Button from '../base/Button';
 import { Flexbox } from '../base/Layout';
@@ -12,7 +13,7 @@ import P1P1Results from '../p1p1/P1P1Results';
 export interface P1P1EmbedModalProps {
   pack: P1P1Pack;
   votes: P1P1VoteSummary;
-  cube: { name: string; shortId: string };
+  cube: { id: string; name: string; shortId: string };
   caption?: string;
   isOpen: boolean;
   setOpen: (open: boolean) => void;
@@ -47,7 +48,7 @@ const P1P1EmbedModal: React.FC<P1P1EmbedModalProps> = ({
       <ModalHeader setOpen={setOpen}>{caption ?? cube.name}</ModalHeader>
       <ModalBody scrollable>
         <Flexbox direction="col" gap="3">
-          <Link href={`/cube/list/${cube.shortId}`}>{cube.name}</Link>
+          <Link href={`/cube/list/${getCubeId(cube)}`}>{cube.name}</Link>
           <P1P1PackDisplay pack={pack} votes={votes} showBotWeights={false} onVoteUpdate={onVoteUpdate} />
           {votes.userVote !== undefined && (
             <div data-testid="p1p1-results">

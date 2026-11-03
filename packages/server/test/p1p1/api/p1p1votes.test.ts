@@ -69,11 +69,12 @@ describe('P1P1 votes-only API', () => {
   });
 
   it('returns the cube name and shortId', async () => {
-    (cubeDao.getById as jest.Mock).mockResolvedValue(createCube({ name: 'Vintage Cube', shortId: 'vintage' }));
+    const cube = createCube({ name: 'Vintage Cube', shortId: 'vintage' });
+    (cubeDao.getById as jest.Mock).mockResolvedValue(cube);
 
     const res = await call(getP1P1VotesHandler).withParams({ packId: uuid.v4() }).send();
 
-    expect(res.body.cube).toEqual({ name: 'Vintage Cube', shortId: 'vintage' });
+    expect(res.body.cube).toEqual({ id: cube.id, name: 'Vintage Cube', shortId: 'vintage' });
   });
 
   it('never reads S3', async () => {

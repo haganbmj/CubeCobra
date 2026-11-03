@@ -53,7 +53,7 @@ export const getP1P1VotesHandler = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       votes: countVotes(pack.votesByUser, user?.id),
-      cube: { name: cube.name, shortId: cube.shortId },
+      cube: { id: cube.id, name: cube.name, shortId: cube.shortId },
     });
   } catch (err) {
     const error = err as Error;

@@ -60,7 +60,7 @@ const votes = (overrides: Partial<P1P1VoteSummary> = {}): P1P1VoteSummary => ({
   ...overrides,
 });
 
-const defaultCube = { name: 'Vintage Cube', shortId: 'vintage' };
+const defaultCube = { id: 'cube-uuid', name: 'Vintage Cube', shortId: 'vintage' };
 
 const voteMock = jest.fn();
 
@@ -149,6 +149,13 @@ describe('P1P1EmbedModal', () => {
     renderOpenModal({});
     expect(screen.getByRole('link', { name: /pack/i })).toHaveAttribute('href', `/cube/p1p1/${PACK_ID}`);
     expect(screen.getByRole('link', { name: 'Vintage Cube' })).toHaveAttribute('href', '/cube/list/vintage');
+  });
+
+  // A cube's shortId is optional and is an empty string when unset, which made the link `/cube/list/`
+  // - a real, reachable state that every fixture with a shortId hides.
+  it('falls back to the cube id when the cube has no shortId', () => {
+    renderOpenModal({ cube: { id: 'cube-uuid', name: 'Demo Cube', shortId: '' } });
+    expect(screen.getByRole('link', { name: 'Demo Cube' })).toHaveAttribute('href', '/cube/list/cube-uuid');
   });
 
   it('shows the caption as the header when one is given', () => {

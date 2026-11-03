@@ -8,7 +8,7 @@ import { readPack, writePack } from 'utils/p1p1PackCache';
 interface UseP1P1PackResult {
   pack: P1P1Pack | null;
   votes: P1P1VoteSummary | null;
-  cube: { name: string; shortId: string } | null;
+  cube: { id: string; name: string; shortId: string } | null;
   loading: boolean;
   error: string | null;
   refetch: () => void;
@@ -17,7 +17,7 @@ interface UseP1P1PackResult {
 const useP1P1Pack = (packId: string | null): UseP1P1PackResult => {
   const [pack, setPack] = useState<P1P1Pack | null>(null);
   const [votes, setVotes] = useState<P1P1VoteSummary | null>(null);
-  const [cube, setCube] = useState<{ name: string; shortId: string } | null>(null);
+  const [cube, setCube] = useState<{ id: string; name: string; shortId: string } | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 

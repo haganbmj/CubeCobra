@@ -82,6 +82,7 @@ describe('Get P1P1 Pack API', () => {
       pack,
       votes: voteSummary,
       cube: {
+        id: cube.id,
         name: cube.name,
         shortId: cube.shortId,
       },
@@ -127,11 +128,12 @@ describe('Get P1P1 Pack API', () => {
   });
 
   it('returns the cube name and shortId alongside the pack', async () => {
+    const cube = createCube({ name: 'Vintage Cube', shortId: 'vintage' });
     (p1p1PackDao.getById as jest.Mock).mockResolvedValue(createP1P1Pack());
-    (cubeDao.getById as jest.Mock).mockResolvedValue(createCube({ name: 'Vintage Cube', shortId: 'vintage' }));
+    (cubeDao.getById as jest.Mock).mockResolvedValue(cube);
 
     const res = await call(getP1P1Handler).withParams({ packId: uuid.v4() }).send();
 
-    expect(res.body.cube).toEqual({ name: 'Vintage Cube', shortId: 'vintage' });
+    expect(res.body.cube).toEqual({ id: cube.id, name: 'Vintage Cube', shortId: 'vintage' });
   });
 });

@@ -8,7 +8,7 @@ import CardGrid from '../card/CardGrid';
 export interface P1P1EmbedTileProps {
   pack: P1P1Pack;
   votes: P1P1VoteSummary;
-  cube: { name: string; shortId: string };
+  cube: { id: string; name: string; shortId: string };
   caption?: string;
   onExpand: () => void;
 }
@@ -63,7 +63,9 @@ const P1P1EmbedTile: React.FC<P1P1EmbedTileProps> = ({ pack, votes, cube, captio
       <span className="block max-h-56 overflow-hidden">
         <CardGrid cards={cards} xs={4} sm={6} md={8} lg={10} xl={12} xxl={12} cardProps={{ autocard: false }} />
       </span>
-      <span className="block text-xs text-muted-foreground">{votes.totalVotes} votes</span>
+      <span className="block text-xs text-muted-foreground">
+        {votes.totalVotes} {votes.totalVotes === 1 ? 'vote' : 'votes'}
+      </span>
       {pickedCard && <span className="block text-xs">You picked {cardName(pickedCard)}</span>}
       <span className="block font-semibold text-link">{hasVoted ? 'See results' : 'Make your pick'}</span>
     </button>

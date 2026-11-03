@@ -49,6 +49,7 @@ export const getP1P1Handler = async (req: Request, res: Response) => {
       votes: voteSummary,
       cube: {
         name: cube.name,
+        id: cube.id,
         shortId: cube.shortId,
       },
     });

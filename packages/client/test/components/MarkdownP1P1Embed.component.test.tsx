@@ -104,16 +104,54 @@ describe('p1p1 embed token', () => {
     expect(c.querySelectorAll('[data-testid="p1p1-embed"]')).toHaveLength(2);
   });
 
-  // The token is inline, so an author can write it mid-sentence. A block `div` nested in a `<p>`
-  // is invalid HTML (the same issue `renderCardImage`'s `inParagraph` flag already solves for
-  // `cardimage`) - `oncard` carries the same flag onto the p1p1embed node so the frame picks a
-  // span here too.
-  it('renders inline in a paragraph without nesting a block element directly in the <p>', async () => {
+  // Without a width the tiles are full-bleed, so flex-wrap gives each its own line and the row the
+  // construct exists to produce never appears.
+  it('gives a tile in a cardrow a width so the row is actually a row', async () => {
+    const c = await renderMarkdown(`<<[[p1p1:${PACK_ID}]][[p1p1:${OTHER_ID}]]>>\n`);
+    const tiles = Array.from(c.querySelectorAll('[data-testid="p1p1-embed"]'));
+
+    expect(tiles).toHaveLength(2);
+    tiles.forEach((tile) => expect(tile).toHaveClass('sm:w-1/2', 'lg:w-1/3'));
+  });
+
+  it('leaves a standalone tile full width', async () => {
+    const c = await renderMarkdown(`[[p1p1:${PACK_ID}]]\n`);
+    const tile = c.querySelector('[data-testid="p1p1-embed"]') as HTMLElement;
+
+    expect(tile).not.toHaveClass('sm:w-1/2');
+  });
+
+  // A cardrow renders a flex container, which is a block element, so a paragraph can no more hold
+  // one than it can hold a tile - and `<<...>>` is the documented way to write a row of packs.
+  it('lifts a cardrow out of its paragraph', async () => {
+    const c = await renderMarkdown(`<<[[p1p1:${PACK_ID}]][[p1p1:${OTHER_ID}]]>>\n`);
+    const tile = c.querySelector('[data-testid="p1p1-embed"]') as HTMLElement;
+
+    expect(tile.closest('p')).toBeNull();
+  });
+
+  it('splits a paragraph around a tile written mid-sentence', async () => {
+    const c = await renderMarkdown(`Before [[p1p1:${PACK_ID}]] after.\n`);
+    const tile = c.querySelector('[data-testid="p1p1-embed"]') as HTMLElement;
+
+    expect(tile.closest('p')).toBeNull();
+    expect(c).toHaveTextContent('Before');
+    expect(c).toHaveTextContent('after.');
+  });
+
+  // The token is inline, so an author can write it mid-sentence - but the tile it resolves to is a
+  // block preview whose card grid renders divs, which a `<p>` cannot legally contain. An earlier
+  // version kept it inside the paragraph and switched the frame to a `span`; that still left
+  // `CardGrid`'s own divs nested in the `<p>`, and React logged a hydration error on every render.
+  // The paragraph is now split around it instead, which removes the conflict rather than hiding it.
+  it('lifts a tile written mid-sentence out of the paragraph entirely', async () => {
     const c = await renderMarkdown(`Check this pick: [[p1p1:${PACK_ID}]] what do you think?\n`);
     const tile = c.querySelector('[data-testid="p1p1-embed"]') as HTMLElement;
+
     expect(tile).toBeInTheDocument();
-    expect(tile.tagName).toBe('SPAN');
-    expect(tile.closest('p')).not.toBeNull();
+    expect(tile.closest('p')).toBeNull();
+    expect(c).toHaveTextContent('Check this pick:');
+    expect(c).toHaveTextContent('what do you think?');
   });
 });
 

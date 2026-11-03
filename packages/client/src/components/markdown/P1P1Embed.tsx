@@ -15,6 +15,7 @@ export interface P1P1EmbedProps {
   id: string;
   caption?: string;
   inTable?: boolean;
+  inCardrow?: boolean;
   inParagraph?: boolean;
 }
 
@@ -51,7 +52,7 @@ const SKELETON_HEIGHT_CLASS = 'h-[23rem]';
 interface P1P1FetchResult {
   pack: P1P1Pack | null;
   votes: P1P1VoteSummary | null;
-  cube: { name: string; shortId: string } | null;
+  cube: { id: string; name: string; shortId: string } | null;
   error: string | null;
 }
 
@@ -107,7 +108,7 @@ const fetchP1P1PackResult = async (id: string): Promise<P1P1FetchResult> => {
  * owner. The cleanup effect below recovers from this with an independent fetch, so a subscriber -
  * present now or arriving later - is never left waiting on an owner that's gone.
  */
-const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph }) => {
+const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inCardrow, inParagraph }) => {
   const ref = useRef<HTMLDivElement>(null);
   const nearViewport = useNearViewport(ref);
   const { claim, reserveFetch, publishFetchResult, getFetchResult, subscribeFetchResult } = useEmbedBudget();
@@ -251,10 +252,14 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
   const loading = decision === 'fetch' && (isOwner ? ownLoading : !sharedResult);
 
   const Tag = inTable || inParagraph ? 'span' : 'div';
+  // A standalone tile takes the full body width. Inside a `<<...>>` cardrow it has to give that up
+  // and claim a share instead, or flex-wrap puts every tile on its own line and the row that the
+  // construct exists to produce never appears. Two across on small screens, three from `lg` - fewer
+  // than the five a mockup can fit, because below about a third of the body width the pack's cards
+  // stop being legible.
+  const widthClass = inCardrow ? 'w-full sm:w-1/2 lg:w-1/3 p-2' : '';
   const frameClass =
-    inTable || inParagraph
-      ? 'inline-block border border-border bg-bg-active p-4'
-      : 'border border-border bg-bg-active p-4';
+    `${inTable || inParagraph ? 'inline-block ' : ''}border border-border bg-bg-active p-4 ${widthClass}`.trim();
 
   if (decision === 'declined') {
     return (

@@ -50,6 +50,7 @@ function onp1p1(node, remainder, allowEmbeds, inParagraph) {
     id,
     caption,
     inTable: node.inTable,
+    inCardrow: node.inCardrow,
     inParagraph,
   };
 }
@@ -144,17 +145,62 @@ function markCardlinksInTables(tree) {
  * This has to run after the `cardlink` visit below, since a node is only a `p1p1embed` once `oncard`
  * has rewritten it.
  */
-function unwrapSoloEmbedParagraphs(tree) {
+// `cardrow` and a resolved embed tile both render block elements, and a paragraph cannot legally
+// contain one - React logs a hydration error and browsers close the `<p>` early. Rather than fight
+// that from inside the components (the tile's grid is `CardGrid`, whose rows and columns are divs),
+// lift them out: a paragraph is split around its block-level children, so each ends up a sibling of
+// the paragraph rather than inside it. A paragraph whose only child is one of them disappears
+// entirely, replaced by the child.
+const BLOCK_LEVEL_IN_PARAGRAPH = new Set(['p1p1embed', 'cardrow']);
+
+const isBlank = (node) => node.type === 'text' && !node.value.trim();
+
+function liftBlockNodesFromParagraphs(tree) {
   visit(tree, 'paragraph', (node, index, parent) => {
     if (!parent || typeof index !== 'number') return;
-    if (node.children.length !== 1 || node.children[0].type !== 'p1p1embed') return;
+    if (!node.children.some((child) => BLOCK_LEVEL_IN_PARAGRAPH.has(child.type))) return;
 
-    const embed = node.children[0];
-    // No longer inline in a paragraph - it replaced one - so the frame should pick its block (div) form.
-    if (embed.data?.hProperties) {
-      embed.data.hProperties.inParagraph = false;
+    const lifted = [];
+    let run = [];
+
+    const flushRun = () => {
+      // Drop runs that are only the whitespace that surrounded the block node, so lifting doesn't
+      // leave empty paragraphs behind.
+      if (run.length && !run.every(isBlank)) {
+        lifted.push({ ...node, children: run });
+      }
+      run = [];
+    };
+
+    for (const child of node.children) {
+      if (BLOCK_LEVEL_IN_PARAGRAPH.has(child.type)) {
+        flushRun();
+        // It is no longer inside a paragraph, so the frame should take its block (div) form.
+        if (child.data?.hProperties) {
+          child.data.hProperties.inParagraph = false;
+        }
+        lifted.push(child);
+      } else {
+        run.push(child);
+      }
     }
-    parent.children[index] = embed;
+    flushRun();
+
+    parent.children.splice(index, 1, ...lifted);
+    // Resume after what was just inserted; the lifted nodes have already been handled.
+    return index + lifted.length;
+  });
+}
+
+/* Mark every embed that sits inside a `<<...>>` cardrow, so it can size itself to share the row
+ * instead of taking the full width a standalone tile wants. Runs before `oncard`, while the nodes
+ * are still `cardlink`s - the same ordering `markCardlinksInTables` relies on.
+ */
+function markCardlinksInCardrows(tree) {
+  visit(tree, 'cardrow', (row) => {
+    visit(row, 'cardlink', (node) => {
+      node.inCardrow = true;
+    });
   });
 }
 
@@ -165,8 +211,9 @@ function cardlinks(options = {}) {
   add(data, 'fromMarkdownExtensions', fromMarkdown);
   return (tree) => {
     markCardlinksInTables(tree);
+    markCardlinksInCardrows(tree);
     visit(tree, 'cardlink', (node, index, parent) => oncard(node, index, parent, allowEmbeds));
-    unwrapSoloEmbedParagraphs(tree);
+    liftBlockNodesFromParagraphs(tree);
   };
 }
 
