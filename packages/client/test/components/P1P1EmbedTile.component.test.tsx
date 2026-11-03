@@ -148,4 +148,14 @@ describe('P1P1Embed states', () => {
     expect(screen.getByTestId('p1p1-embed-tile')).toBeInTheDocument();
     expect(screen.queryByTestId('p1p1-embed-skeleton')).not.toBeInTheDocument();
   });
+
+  it('omits the caption element for an explicitly empty caption ([[p1p1:<id>|]])', async () => {
+    await renderEmbed({ pack: pack(), votes: votes(), cube: defaultCube, caption: '' });
+    expect(screen.queryByTestId('p1p1-embed-caption')).not.toBeInTheDocument();
+  });
+
+  it('omits the caption element for a whitespace-only caption', async () => {
+    await renderEmbed({ pack: pack(), votes: votes(), cube: defaultCube, caption: '   ' });
+    expect(screen.queryByTestId('p1p1-embed-caption')).not.toBeInTheDocument();
+  });
 });

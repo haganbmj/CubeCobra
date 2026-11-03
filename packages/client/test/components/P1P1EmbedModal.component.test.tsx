@@ -98,6 +98,7 @@ interface RenderEmbedOverrides {
   pack?: P1P1Pack;
   votes?: P1P1VoteSummary;
   cube?: { name: string; shortId: string };
+  caption?: string;
   user?: ReturnType<typeof createUser> | null;
 }
 
@@ -112,7 +113,7 @@ const renderEmbed = async (overrides: RenderEmbedOverrides = {}) => {
   });
   const result = render(
     <UserContext.Provider value={overrides.user === null ? null : (overrides.user ?? createUser({ id: 'user-1' }))}>
-      <P1P1Embed id={PACK_ID} />
+      <P1P1Embed id={PACK_ID} caption={overrides.caption} />
     </UserContext.Provider>,
   );
   // `P1P1Embed` now checks the pack cache (`p1p1PackCache.ts`) before deciding to fetch, which adds
@@ -149,6 +150,19 @@ describe('P1P1EmbedModal', () => {
     expect(screen.getByRole('link', { name: /pack/i })).toHaveAttribute('href', `/cube/p1p1/${PACK_ID}`);
     expect(screen.getByRole('link', { name: 'Vintage Cube' })).toHaveAttribute('href', '/cube/list/vintage');
   });
+
+  it('shows the caption as the header when one is given', () => {
+    renderOpenModal({ caption: 'My Pack' });
+    expect(screen.getByText('My Pack')).toBeInTheDocument();
+    // The cube-name link in the body is unaffected by the header's caption.
+    expect(screen.getByRole('link', { name: 'Vintage Cube' })).toBeInTheDocument();
+  });
+
+  it('falls back to the cube name as the header when no caption is given', () => {
+    renderOpenModal({ caption: undefined });
+    // One for the header, one for the cube-name link in the body.
+    expect(screen.getAllByText('Vintage Cube')).toHaveLength(2);
+  });
 });
 
 describe('P1P1Embed -> P1P1EmbedModal wiring', () => {
@@ -156,6 +170,19 @@ describe('P1P1Embed -> P1P1EmbedModal wiring', () => {
     await renderEmbed();
     fireEvent.click(screen.getByTestId('p1p1-embed-tile'));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('falls back to the cube name in the header for an explicitly empty caption ([[p1p1:<id>|]])', async () => {
+    await renderEmbed({ caption: '' });
+    fireEvent.click(screen.getByTestId('p1p1-embed-tile'));
+    // One for the header, one for the cube-name link in the body - same as the no-caption case.
+    expect(within(screen.getByRole('dialog')).getAllByText('Vintage Cube')).toHaveLength(2);
+  });
+
+  it('falls back to the cube name in the header for a whitespace-only caption', async () => {
+    await renderEmbed({ caption: '   ' });
+    fireEvent.click(screen.getByTestId('p1p1-embed-tile'));
+    expect(within(screen.getByRole('dialog')).getAllByText('Vintage Cube')).toHaveLength(2);
   });
 
   it('updates the tile call to action after voting in the modal', async () => {

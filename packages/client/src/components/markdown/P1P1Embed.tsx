@@ -27,6 +27,14 @@ export interface P1P1EmbedProps {
 const tokenText = (id: string, caption?: string): string =>
   caption !== undefined ? `[[p1p1:${id}|${caption}]]` : `[[p1p1:${id}]]`;
 
+// Normalizes an explicitly-empty caption (`[[p1p1:<id>|]]`, or one that's whitespace only) to
+// `undefined` for display: the raw `caption` prop is left untouched (see `tokenText` above, which
+// needs the empty string to round-trip the fallback token faithfully), but `P1P1EmbedTile` and
+// `P1P1EmbedModal` should both treat "nothing meaningful after the pipe" the same as "no pipe at
+// all" - no caption element in the tile, and the modal header falling back to the cube's name.
+const displayCaption = (caption?: string): string | undefined =>
+  caption !== undefined && caption.trim() !== '' ? caption : undefined;
+
 // Sized to the resolved tile's actual content, not just the card grid it wraps, so a post does not
 // jump as embeds resolve (the preview grid itself is capped at `max-h-56` = 224px, which is only
 // one row of `P1P1EmbedTile`, not the whole tile). Measured from that tile's own rows, each in a
@@ -276,12 +284,18 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
 
   return (
     <Tag ref={ref} data-testid="p1p1-embed" data-pack-id={id} className={frameClass}>
-      <P1P1EmbedTile pack={pack} votes={votes} cube={cube} caption={caption} onExpand={() => setModalOpen(true)} />
+      <P1P1EmbedTile
+        pack={pack}
+        votes={votes}
+        cube={cube}
+        caption={displayCaption(caption)}
+        onExpand={() => setModalOpen(true)}
+      />
       <P1P1EmbedModal
         pack={pack}
         votes={votes}
         cube={cube}
-        caption={caption}
+        caption={displayCaption(caption)}
         isOpen={modalOpen}
         setOpen={setModalOpen}
         onVoteUpdate={setVoteOverride}
