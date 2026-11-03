@@ -17,6 +17,7 @@ import Link, { LinkProps } from './base/Link';
 import Text from './base/Text';
 import FoilCardImage from './FoilCardImage';
 import LinkModal, { LinkModalProps } from './LinkModal';
+import P1P1Embed from './markdown/P1P1Embed';
 import withAutocard, { WithAutocardProps } from './WithAutocard';
 import withModal, { WithModalProps } from './WithModal';
 
@@ -342,6 +343,7 @@ const RENDERERS = {
   cardimage: renderCardImage,
   centering: renderCentering,
   cardrow: renderCardrow,
+  p1p1embed: P1P1Embed,
 };
 
 export interface MarkdownProps {

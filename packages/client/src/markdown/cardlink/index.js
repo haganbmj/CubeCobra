@@ -4,7 +4,60 @@ import { fromMarkdown } from 'markdown/cardlink/mdast-cardlink';
 import syntax from 'markdown/cardlink/micromark-cardlink';
 import { add } from 'markdown/utils';
 
+const P1P1_PREFIX = 'p1p1:';
+// Canonical 8-4-4-4-12 hex form, matching the shape of the UUIDs this app actually generates.
+// Joi's default `.uuid()` (used server-side in getp1p1.ts) is intentionally looser - it also accepts
+// bracket-wrapped and colon-separated GUIDs of any version - but none of that is a shape a real pack id
+// ever takes, so there is no reason to let it through here too.
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/* Split `value` on the first occurrence of `delimiter` only, leaving any further occurrences
+ * (inside a caption, say) in the second half intact.
+ */
+function splitFirst(value, delimiter) {
+  const index = value.indexOf(delimiter);
+  if (index === -1) {
+    return [value, undefined];
+  }
+  return [value.slice(0, index), value.slice(index + delimiter.length)];
+}
+
+function onp1p1(node, remainder) {
+  /* Tables don't allow raw pipes (|) in their cell contents unless escaped - see the comment on
+   * markCardlinksInTables below - so mirror the cardlink id/name split: prefer an escaped `\|` split
+   * over a plain `|` split, and in either case split on the FIRST occurrence only so a caption
+   * containing further pipes survives intact.
+   */
+  let [id, caption] = splitFirst(remainder, '\\|');
+  if (typeof caption === 'undefined') {
+    [id, caption] = splitFirst(remainder, '|');
+  }
+
+  if (!UUID_REGEX.test(id)) {
+    // Malformed id: render the original token source as plain text rather than falling through to
+    // an autocard link literally named "p1p1:<whatever was typed>".
+    node.type = 'text';
+    node.value = `[[${node.value}]]`;
+    delete node.data.hName;
+    delete node.data.hProperties;
+    return;
+  }
+
+  node.type = 'p1p1embed';
+  node.data.hName = 'p1p1embed';
+  node.data.hProperties = {
+    id,
+    caption,
+    inTable: node.inTable,
+  };
+}
+
 function oncard(node, index, parent) {
+  if (node.value.startsWith(P1P1_PREFIX)) {
+    onp1p1(node, node.value.slice(P1P1_PREFIX.length));
+    return;
+  }
+
   if (node.value[0] === '!') {
     // Begins with an exclamation point -> it's a card image
     node.value = node.value.substring(1);
