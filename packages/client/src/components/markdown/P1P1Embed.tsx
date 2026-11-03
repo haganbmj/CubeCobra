@@ -102,16 +102,27 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
   const [forceLoad, setForceLoad] = useState(false);
   const [decision, setDecision] = useState<'pending' | 'fetch' | 'declined'>('pending');
   const [isOwner, setIsOwner] = useState(false);
+  // Guard each decision path to run at most once per instance (refs, not `decision` state - see
+  // the comment inside the effect below for why state can't be used for this).
+  const normalDecidedRef = useRef(false);
+  const forceLoadDecidedRef = useRef(false);
 
   useEffect(() => {
     if (forceLoad) {
-      // An explicit click always wins, regardless of any earlier decision - this is the bypass,
-      // and it always fetches directly rather than subscribing to anyone else's result.
-      setIsOwner(true);
+      if (forceLoadDecidedRef.current) return;
+      forceLoadDecidedRef.current = true;
+      // An explicit click always wins past the ceiling - `claim`'s result is intentionally
+      // ignored, accepting the over-the-ceiling grant - but it still goes through `reserveFetch`
+      // so two over-budget duplicates of the same pack, both force-loaded, still share one fetch:
+      // only the first click to reserve becomes the owner, the second becomes a subscriber the
+      // same way an ordinary (within-budget) duplicate would.
+      claim(id);
+      setIsOwner(reserveFetch(id));
       setDecision('fetch');
       return;
     }
-    if (decision !== 'pending' || !nearViewport) return;
+    if (normalDecidedRef.current || !nearViewport) return;
+    normalDecidedRef.current = true;
     if (!claim(id)) {
       setDecision('declined');
       return;
@@ -120,10 +131,12 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
     // later caller for that same key loses - which is what lets a losing instance below recognize
     // it should subscribe to the winner's result instead of also fetching. Calling it more than
     // once per instance would make the winning instance itself lose on a later call, which is
-    // exactly why this whole decision is made at most once, guarded by `decision !== 'pending'`.
+    // exactly why both this and the `forceLoad` branch above are guarded to decide at most once
+    // per instance (refs, not `decision` state, since reacting to `decision` changing would re-run
+    // this same effect a second time the moment either branch sets it).
     setIsOwner(reserveFetch(id));
     setDecision('fetch');
-  }, [nearViewport, forceLoad, decision, claim, reserveFetch, id]);
+  }, [nearViewport, forceLoad, claim, reserveFetch, id]);
 
   const shouldFetch = decision === 'fetch' && isOwner;
   const {

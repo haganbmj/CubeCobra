@@ -205,6 +205,21 @@ describe('P1P1Embed budget gating', () => {
     await flushPendingFetch();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('fetches once when two over-budget duplicates of the same pack are both force-loaded', async () => {
+    renderEmbeds([PACK_ID, PACK_ID], { max: 0 });
+    await flushPendingFetch();
+    const loadButtons = screen.getAllByRole('button', { name: /Load This/ });
+    expect(loadButtons).toHaveLength(2);
+
+    fireEvent.click(loadButtons[0]);
+    fireEvent.click(loadButtons[1]);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('p1p1-embed-tile')).toHaveLength(2);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 // `TextEntry`'s Preview/Source tabs mount and unmount `Markdown` - and every embed inside it -
