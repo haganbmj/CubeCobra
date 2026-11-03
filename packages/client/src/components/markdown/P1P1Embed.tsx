@@ -126,11 +126,12 @@ const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph
 
   // A pack's cards never change after it's generated, so a pack already sitting in IndexedDB can
   // skip the page's fetch budget entirely - the budget bounds *fetches*, and this embed doesn't
-  // need to be one of the ones counted against it. This does not avoid the server's own DynamoDB
-  // get plus S3 read: `useP1P1Pack` still hits `getp1p1` regardless, since `votes` always has to
-  // come from the network. Checked once nearViewport flips true, same gating cost as the decision
-  // below, and the decision effect waits on `cacheChecked` (this check is async - IndexedDB - so
-  // its answer can't be known within the same tick nearViewport flips).
+  // need to be one of the ones counted against it. A cached pack also gets the cheap request:
+  // `useP1P1Pack` routes a hit to `/tool/api/p1p1votes`, which reads the pack's DynamoDB record
+  // alone, instead of `getp1p1`, which also reads the S3 body. A request is still made either way,
+  // because `votes` can never come from the cache. Checked once nearViewport flips true, same
+  // gating cost as the decision below, and the decision effect waits on `cacheChecked` (this check
+  // is async - IndexedDB - so its answer can't be known within the same tick nearViewport flips).
   const [cachedPack, setCachedPack] = useState<P1P1Pack | null>(null);
   const [cacheChecked, setCacheChecked] = useState(false);
   const cacheCheckedRef = useRef(false);

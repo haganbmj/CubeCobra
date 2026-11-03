@@ -4,13 +4,15 @@ import { P1P1Pack } from '@utils/datatypes/P1P1Pack';
 //
 // A pack's cards never change after it's generated - only `votesByUser` is mutable - so once a
 // reader has fetched a pack once, the body can be served from IndexedDB on every later visit
-// (another scroll past the same embed, or revisiting a primer). `getp1p1` is still hit on every
-// visit regardless - it's the only endpoint, and `votes` always has to come from it live - so this
-// does *not* save the DynamoDB get or S3 read the handler does on every request. What it actually
-// buys: a cache hit doesn't count against the page's embed-fetch budget (`EmbedBudgetContext`),
-// since the budget bounds *fetches* and a cache hit isn't one; and the pack body can paint
-// immediately from IndexedDB instead of waiting on the network response to settle. Avoiding the
-// backend read too would need a vote-only endpoint or a DAO split - out of scope here.
+// (another scroll past the same embed, or revisiting a primer). A hit buys three things: the pack
+// body paints immediately instead of waiting on the network; the fetch doesn't count against the
+// page's embed-fetch budget (`EmbedBudgetContext` bounds *fetches*, and a hit isn't one); and the
+// request that still has to go out is the cheap one. `useP1P1Pack` routes a hit to
+// `/tool/api/p1p1votes`, which answers from the pack's DynamoDB record alone and never touches S3,
+// instead of `getp1p1`, which reads both halves. The DynamoDB gets remain either way - the pack
+// record and its cube are still needed - but the S3 read is skipped entirely.
+//
+// A request is still unavoidable, because the vote summary can never be cached (below).
 //
 // The vote summary (`P1P1VoteSummary`, returned by `getp1p1` alongside `pack`) is never cached here
 // and must always come from the network: it drives both the tile's call to action and whether

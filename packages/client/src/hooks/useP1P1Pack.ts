@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { P1P1Pack, P1P1VoteSummary } from '@utils/datatypes/P1P1Pack';
+import { buildVoteSummary } from '@utils/p1p1VoteSummary';
 
 import { readPack, writePack } from 'utils/p1p1PackCache';
 
@@ -26,21 +27,34 @@ const useP1P1Pack = (packId: string | null): UseP1P1PackResult => {
     setLoading(true);
     setError(null);
 
-    // Started alongside the network fetch, not awaited before it - keeping `fetch` the first (and
-    // only) await in this function's own control flow avoids delaying the request behind a local
-    // IndexedDB read. This doesn't save the request itself: `votes` (and `cube`) always have to
-    // come from the network regardless of a cache hit, since `getp1p1` is the only endpoint and
-    // `p1p1PackCache.ts` never caches vote state, so the server still does its usual DynamoDB get
-    // plus S3 read either way. What a hit buys is purely client-side: the pack body can paint
-    // immediately from IndexedDB instead of waiting on this response to settle.
-    let cacheHit = false;
-    readPack(packId).then((cached) => {
-      if (!cached) return;
-      cacheHit = true;
-      setPack(cached);
-    });
-
     try {
+      // The cache read comes FIRST and is awaited, which is what decides the endpoint. An earlier
+      // version deliberately fired the request before touching IndexedDB so the network was never
+      // delayed behind local I/O - that ordering cannot survive here, because choosing the cheap
+      // endpoint requires already knowing whether we hold the body. The trade is one local
+      // IndexedDB read ahead of the request, in exchange for the server skipping an S3 read
+      // entirely. Please don't "restore" the old ordering: it silently disables the cheap path.
+      const cached = await readPack(packId);
+
+      if (cached) {
+        // The pack body is immutable, so only the vote state needs refreshing. `/p1p1votes` answers
+        // from the pack's DynamoDB record alone, and returns sparse counts because it has no card
+        // list to size them against - they are expanded here against the cards we already hold.
+        const response = await fetch(`/tool/api/p1p1votes/${packId}`);
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to fetch P1P1 votes');
+        }
+
+        const data = await response.json();
+
+        setPack(cached);
+        setVotes(buildVoteSummary(data.votes, cached));
+        setCube(data.cube);
+        return;
+      }
+
       const response = await fetch(`/tool/api/getp1p1/${packId}`);
 
       if (!response.ok) {
@@ -50,10 +64,8 @@ const useP1P1Pack = (packId: string | null): UseP1P1PackResult => {
 
       const data = await response.json();
 
-      if (!cacheHit) {
-        setPack(data.pack);
-        writePack(packId, data.pack);
-      }
+      setPack(data.pack);
+      writePack(packId, data.pack);
       setVotes(data.votes);
       setCube(data.cube);
     } catch (err) {
