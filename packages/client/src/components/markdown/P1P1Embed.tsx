@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+import { P1P1Pack, P1P1VoteSummary } from '@utils/datatypes/P1P1Pack';
+
 import Button from 'components/base/Button';
 import { useEmbedBudget } from 'contexts/EmbedBudgetContext';
 import useNearViewport from 'hooks/useNearViewport';
@@ -32,6 +34,17 @@ const tokenText = (id: string, caption?: string): string =>
 // `23rem`.
 const SKELETON_HEIGHT_CLASS = 'h-[23rem]';
 
+// What `useP1P1Pack` ultimately settles to for a given pack id. Shared through `EmbedBudgetContext`
+// so a duplicate embed of the same pack - the one that lost `reserveFetch` - can render the exact
+// same success-or-failure result the embed that actually fetched it produced, rather than being
+// left with nothing or independently refetching.
+interface P1P1FetchResult {
+  pack: P1P1Pack | null;
+  votes: P1P1VoteSummary | null;
+  cube: { name: string; shortId: string } | null;
+  error: string | null;
+}
+
 /**
  * Renders a `[[p1p1:<id>]]` embed token as a live tile: fetches the pack via `useP1P1Pack` and shows
  * a loading skeleton, the resolved tile, or - if the pack can't be resolved - the original token
@@ -44,35 +57,91 @@ const SKELETON_HEIGHT_CLASS = 'h-[23rem]';
  *
  * Fetching is gated by a page-wide budget (`EmbedBudgetContext`) and by viewport proximity
  * (`useNearViewport`): an embed only asks for data once it has scrolled near the viewport, and only
- * if the page hasn't already spent its budget on other embeds. Past the budget, or for a duplicate
- * embed of a pack another instance on the page is already fetching, the tile shows its frame plus a
- * "Load This" button that fetches directly, bypassing both checks - the reader can always get the
- * content, it just costs a click.
+ * if the page hasn't already spent its budget on other embeds. Past the budget, the tile shows its
+ * frame plus a "Load This" button that fetches directly, bypassing both checks - the reader can
+ * always get the content, it just costs a click.
+ *
+ * A *duplicate* embed of a pack another embed on the page is already fetching is different: it is
+ * still within budget (both share the one slot `claim` granted), it just isn't the one performing
+ * the request. It subscribes to the fetching embed's result instead, and renders the identical
+ * tile, or the identical unresolvable fallback, once that arrives - never its own "Load This",
+ * which would wrongly suggest the reader lost something a click could fix.
  */
 const P1P1Embed: React.FC<P1P1EmbedProps> = ({ id, caption, inTable, inParagraph }) => {
   const ref = useRef<HTMLElement>(null);
   const nearViewport = useNearViewport(ref);
-  const { claim, reserveFetch } = useEmbedBudget();
+  const { claim, reserveFetch, publishFetchResult, getFetchResult, subscribeFetchResult } = useEmbedBudget();
   const [forceLoad, setForceLoad] = useState(false);
   const [decision, setDecision] = useState<'pending' | 'fetch' | 'declined'>('pending');
+  const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
     if (forceLoad) {
-      // An explicit click always wins, regardless of any earlier decision - this is the bypass.
+      // An explicit click always wins, regardless of any earlier decision - this is the bypass,
+      // and it always fetches directly rather than subscribing to anyone else's result.
+      setIsOwner(true);
       setDecision('fetch');
       return;
     }
     if (decision !== 'pending' || !nearViewport) return;
-    // `claim`/`reserveFetch` must run at most once per instance: `reserveFetch` is deliberately not
-    // idempotent (that is what lets a duplicate embed of the same pack recognize it lost the race
-    // and skip fetching), so running it again on a later effect - e.g. one re-run because an
-    // unrelated prop changed - would make the winning instance itself lose on the second call. The
-    // `decision !== 'pending'` guard above is what keeps this a one-time decision.
-    setDecision(claim(id) && reserveFetch(id) ? 'fetch' : 'declined');
+    if (!claim(id)) {
+      setDecision('declined');
+      return;
+    }
+    // `reserveFetch` is deliberately not idempotent - the first caller for a key wins and every
+    // later caller for that same key loses - which is what lets a losing instance below recognize
+    // it should subscribe to the winner's result instead of also fetching. Calling it more than
+    // once per instance would make the winning instance itself lose on a later call, which is
+    // exactly why this whole decision is made at most once, guarded by `decision !== 'pending'`.
+    setIsOwner(reserveFetch(id));
+    setDecision('fetch');
   }, [nearViewport, forceLoad, decision, claim, reserveFetch, id]);
 
-  const shouldFetch = decision === 'fetch';
-  const { pack, votes, cube, loading, error } = useP1P1Pack(shouldFetch ? id : null);
+  const shouldFetch = decision === 'fetch' && isOwner;
+  const {
+    pack: ownPack,
+    votes: ownVotes,
+    cube: ownCube,
+    loading: ownLoading,
+    error: ownError,
+  } = useP1P1Pack(shouldFetch ? id : null);
+
+  // Once the owning embed's own fetch settles, publish it for any duplicate embed of the same pack
+  // elsewhere on the page. Guarded by `hasStartedFetch`: `useP1P1Pack`'s `loading` starts out
+  // `false` for one render before its own effect flips it to `true`, so without this guard that
+  // transient render would publish a bogus "resolved to nothing" result before the fetch has even
+  // begun.
+  const hasStartedFetch = useRef(false);
+  useEffect(() => {
+    if (!shouldFetch) return;
+    if (ownLoading) {
+      hasStartedFetch.current = true;
+      return;
+    }
+    if (!hasStartedFetch.current) return;
+    publishFetchResult<P1P1FetchResult>(id, { pack: ownPack, votes: ownVotes, cube: ownCube, error: ownError });
+  }, [shouldFetch, ownLoading, ownPack, ownVotes, ownCube, ownError, id, publishFetchResult]);
+
+  // A duplicate never fetches on its own - it subscribes to the owning embed's result instead,
+  // checking for one that already arrived first so a late subscriber doesn't wait forever for a
+  // result that was published before it subscribed.
+  const [sharedResult, setSharedResult] = useState<P1P1FetchResult | undefined>(undefined);
+  useEffect(() => {
+    if (decision !== 'fetch' || isOwner) return undefined;
+    const existing = getFetchResult<P1P1FetchResult>(id);
+    if (existing) {
+      setSharedResult(existing);
+      return undefined;
+    }
+    return subscribeFetchResult<P1P1FetchResult>(id, setSharedResult);
+  }, [decision, isOwner, id, getFetchResult, subscribeFetchResult]);
+
+  const pack = isOwner ? ownPack : (sharedResult?.pack ?? null);
+  const votes = isOwner ? ownVotes : (sharedResult?.votes ?? null);
+  const cube = isOwner ? ownCube : (sharedResult?.cube ?? null);
+  const error = isOwner ? ownError : (sharedResult?.error ?? null);
+  const loading = decision === 'fetch' && (isOwner ? ownLoading : !sharedResult);
+
   const Tag = inTable || inParagraph ? 'span' : 'div';
   const frameClass =
     inTable || inParagraph

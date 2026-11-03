@@ -27,15 +27,28 @@ interface EmbedBudgetContextValue {
   // later caller for that same key loses, which is exactly what lets a duplicate embed skip
   // fetching instead of redoing the first embed's request.
   reserveFetch: (key: string) => boolean;
+  // The embed that lost `reserveFetch` still needs *something* to render - the same success-or-
+  // failure result the embed that won eventually produces, not a dead end. These three let the
+  // winner publish that result once its own fetch settles, and let a loser read it (if it already
+  // arrived) or subscribe to it (if it hasn't yet). Generic over the result's shape so a future
+  // embed type can reuse this without the budget context knowing what that shape is.
+  publishFetchResult: <T>(key: string, result: T) => void;
+  getFetchResult: <T>(key: string) => T | undefined;
+  subscribeFetchResult: <T>(key: string, onResult: (result: T) => void) => () => void;
 }
 
 // Used only when no provider is mounted - e.g. a component rendered standalone in a test that
 // doesn't care about the budget. Grants everything unconditionally so such a component behaves
 // exactly as it did before this budget existed, rather than silently gating a fetch nothing asked
 // it to bound. Production always mounts `EmbedBudgetContextProvider` once, in `RenderToRoot`.
+// `reserveFetch` always granting ownership here means the publish/subscribe path is simply never
+// reached without a provider, so its no-op implementations below are unreachable in practice.
 const defaultValue: EmbedBudgetContextValue = {
   claim: () => true,
   reserveFetch: () => true,
+  publishFetchResult: () => {},
+  getFetchResult: () => undefined,
+  subscribeFetchResult: () => () => {},
 };
 
 const EmbedBudgetContext = createContext<EmbedBudgetContextValue>(defaultValue);
@@ -60,6 +73,8 @@ export const EmbedBudgetContextProvider: React.FC<EmbedBudgetContextProviderProp
   const granted = useRef<Set<string>>(new Set());
   const count = useRef(0);
   const fetchOwners = useRef<Set<string>>(new Set());
+  const results = useRef<Map<string, unknown>>(new Map());
+  const subscribers = useRef<Map<string, Set<(result: unknown) => void>>>(new Map());
 
   const claim = useCallback(
     (key: string): boolean => {
@@ -78,7 +93,34 @@ export const EmbedBudgetContextProvider: React.FC<EmbedBudgetContextProviderProp
     return true;
   }, []);
 
-  const value = useMemo(() => ({ claim, reserveFetch }), [claim, reserveFetch]);
+  const publishFetchResult = useCallback(<T,>(key: string, result: T): void => {
+    results.current.set(key, result);
+    const subs = subscribers.current.get(key);
+    if (!subs) return;
+    // Snapshot before notifying: a subscriber's own cleanup (unmounting in response to the result)
+    // mutating `subs` mid-iteration would otherwise skip or double-notify the remaining entries.
+    [...subs].forEach((onResult) => onResult(result));
+  }, []);
+
+  const getFetchResult = useCallback(<T,>(key: string): T | undefined => results.current.get(key) as T | undefined, []);
+
+  const subscribeFetchResult = useCallback(<T,>(key: string, onResult: (result: T) => void): (() => void) => {
+    const wrapped = onResult as (result: unknown) => void;
+    let subs = subscribers.current.get(key);
+    if (!subs) {
+      subs = new Set();
+      subscribers.current.set(key, subs);
+    }
+    subs.add(wrapped);
+    return () => {
+      subscribers.current.get(key)?.delete(wrapped);
+    };
+  }, []);
+
+  const value = useMemo(
+    () => ({ claim, reserveFetch, publishFetchResult, getFetchResult, subscribeFetchResult }),
+    [claim, reserveFetch, publishFetchResult, getFetchResult, subscribeFetchResult],
+  );
 
   return <EmbedBudgetContext.Provider value={value}>{children}</EmbedBudgetContext.Provider>;
 };

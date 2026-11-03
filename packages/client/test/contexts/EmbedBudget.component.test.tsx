@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import '@testing-library/jest-dom';
 
@@ -155,9 +155,28 @@ describe('P1P1Embed budget gating', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('fetches once for the same pack embedded twice', async () => {
+  it('fetches once for the same pack embedded twice, and both render the resolved tile', async () => {
     renderEmbeds([PACK_ID, PACK_ID], { max: 5 });
-    await flushPendingFetch();
+    // `findAllBy` resolves as soon as the query returns anything non-empty, which happens as soon
+    // as the owning embed's tile renders - before the duplicate has necessarily received the
+    // owner's published result. `waitFor` instead keeps polling until the full assertion holds.
+    await waitFor(() => {
+      expect(screen.getAllByTestId('p1p1-embed-tile')).toHaveLength(2);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the unresolvable fallback for both embeds, not one tile and one error, when the shared fetch fails', async () => {
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({ ok: false, json: async () => ({ error: 'P1P1 pack not found' }) }),
+    );
+    renderEmbeds([PACK_ID, PACK_ID], { max: 5 });
+    await waitFor(() => {
+      const embeds = screen.getAllByTestId('p1p1-embed');
+      embeds.forEach((embed) => expect(embed).toHaveTextContent(`[[p1p1:${PACK_ID}]]`));
+    });
+    expect(screen.queryAllByTestId('p1p1-embed-tile')).toHaveLength(0);
+    expect(screen.getAllByTestId('p1p1-embed')).toHaveLength(2);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
