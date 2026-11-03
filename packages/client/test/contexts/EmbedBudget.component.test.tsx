@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
@@ -115,6 +115,33 @@ const renderClaims = (keys: string[], { max }: { max: number }): boolean[] => {
   return keys.map((_, index) => screen.getByTestId(`claim-${index}`).textContent === 'true');
 };
 
+// A probe exposing `subscribeFetchResult` imperatively, so a test can subscribe and then
+// unsubscribe the same key's last listener from outside - the public API has no reason to expose
+// whether the (now-empty) Set backing a key is also removed from the subscribers map, so the
+// "subscriber cleanup" test below observes this the same indirect way the leak itself would show
+// up: via `Map.prototype.delete`, never called on the old code path (only the inner `Set.delete`
+// was), always called with the key once its last subscriber unsubscribes on the fixed path.
+const SubscribeProbe: React.FC<{ id: string }> = ({ id }) => {
+  const { subscribeFetchResult } = useEmbedBudget();
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="subscribe"
+        onClick={() => {
+          unsubscribeRef.current = subscribeFetchResult(id, () => {});
+        }}
+      >
+        subscribe
+      </button>
+      <button type="button" data-testid="unsubscribe" onClick={() => unsubscribeRef.current?.()}>
+        unsubscribe
+      </button>
+    </>
+  );
+};
+
 interface RenderEmbedsOptions {
   max: number;
   intersecting?: boolean;
@@ -169,6 +196,44 @@ describe('EmbedBudgetContext claim', () => {
     );
     expect(screen.getByTestId(`claim-${MAX_PAGE_EMBEDS - 1}`)).toHaveTextContent('true');
     expect(screen.getByTestId(`claim-${MAX_PAGE_EMBEDS}`)).toHaveTextContent('false');
+  });
+});
+
+describe('EmbedBudgetContext subscriber cleanup', () => {
+  it('removes the subscribers map entry once its last subscriber unsubscribes', () => {
+    const deleteSpy = jest.spyOn(Map.prototype, 'delete');
+    const key = 'subscriber-cleanup-probe-key';
+    render(
+      <EmbedBudgetContextProvider>
+        <SubscribeProbe id={key} />
+      </EmbedBudgetContextProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('subscribe'));
+    fireEvent.click(screen.getByTestId('unsubscribe'));
+
+    expect(deleteSpy).toHaveBeenCalledWith(key);
+    deleteSpy.mockRestore();
+  });
+
+  it('does not touch the map when other subscribers for the key remain', () => {
+    const deleteSpy = jest.spyOn(Map.prototype, 'delete');
+    const key = 'subscriber-cleanup-probe-key-shared';
+    render(
+      <EmbedBudgetContextProvider>
+        <SubscribeProbe id={key} />
+        <SubscribeProbe id={key} />
+      </EmbedBudgetContextProvider>,
+    );
+
+    const [subscribeA] = screen.getAllByTestId('subscribe');
+    const [unsubscribeA] = screen.getAllByTestId('unsubscribe');
+    fireEvent.click(subscribeA);
+    fireEvent.click(screen.getAllByTestId('subscribe')[1]);
+    fireEvent.click(unsubscribeA);
+
+    expect(deleteSpy).not.toHaveBeenCalledWith(key);
+    deleteSpy.mockRestore();
   });
 });
 

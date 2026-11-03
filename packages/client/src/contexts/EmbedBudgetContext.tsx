@@ -113,7 +113,12 @@ export const EmbedBudgetContextProvider: React.FC<EmbedBudgetContextProviderProp
     }
     subs.add(wrapped);
     return () => {
-      subscribers.current.get(key)?.delete(wrapped);
+      const current = subscribers.current.get(key);
+      if (!current) return;
+      current.delete(wrapped);
+      // Don't leave an empty Set keyed in the map once its last subscriber has gone - the map
+      // otherwise grows one entry per distinct pack id ever embedded on the page and never shrinks.
+      if (current.size === 0) subscribers.current.delete(key);
     };
   }, []);
 
