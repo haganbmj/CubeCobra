@@ -131,6 +131,33 @@ function markCardlinksInTables(tree) {
   });
 }
 
+/* A token written alone on its own line is the common way to author a p1p1 embed, and it parses as
+ * a paragraph whose only child is the embed. Left as-is, that forces the embed's frame into the
+ * `inParagraph` span form, which still nests the tile's own block content (the card grid, built from
+ * `div`s) inside a `<p>` - exactly the invalid, React-misnesting case `inParagraph` exists to avoid,
+ * just one level further down. So: unwrap a paragraph whose sole content is one `p1p1embed`, replacing
+ * the paragraph with the embed itself. The tile then renders at the block level it actually needs.
+ *
+ * An embed sharing its paragraph with other content (surrounding prose) is left alone - that is the
+ * genuinely inline case, and `inParagraph`'s span wrapper is the right fix for it.
+ *
+ * This has to run after the `cardlink` visit below, since a node is only a `p1p1embed` once `oncard`
+ * has rewritten it.
+ */
+function unwrapSoloEmbedParagraphs(tree) {
+  visit(tree, 'paragraph', (node, index, parent) => {
+    if (!parent || typeof index !== 'number') return;
+    if (node.children.length !== 1 || node.children[0].type !== 'p1p1embed') return;
+
+    const embed = node.children[0];
+    // No longer inline in a paragraph - it replaced one - so the frame should pick its block (div) form.
+    if (embed.data?.hProperties) {
+      embed.data.hProperties.inParagraph = false;
+    }
+    parent.children[index] = embed;
+  });
+}
+
 function cardlinks(options = {}) {
   const { allowEmbeds = false } = options;
   const data = this.data();
@@ -139,6 +166,7 @@ function cardlinks(options = {}) {
   return (tree) => {
     markCardlinksInTables(tree);
     visit(tree, 'cardlink', (node, index, parent) => oncard(node, index, parent, allowEmbeds));
+    unwrapSoloEmbedParagraphs(tree);
   };
 }
 

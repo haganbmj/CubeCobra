@@ -56,6 +56,19 @@ describe('p1p1 embed token', () => {
     expect(c.querySelector('[data-testid="p1p1-embed"]')).toBeInTheDocument();
   });
 
+  // The common authoring form - the token alone on its own line - parses as a paragraph whose only
+  // child is the embed. Left wrapped, the frame would take the inline `inParagraph` span form, which
+  // still nests the tile's own block content (the card grid) inside a `<p>` - exactly the invalid
+  // nesting `inParagraph` exists to avoid, just one level further down. `cardlinks` unwraps this case
+  // by replacing the paragraph with the embed itself, so the frame renders at the block level.
+  it('unwraps a paragraph whose only content is a p1p1 token, rendering the tile at the block level', () => {
+    const c = renderMarkdown(`[[p1p1:${PACK_ID}]]\n`);
+    const tile = c.querySelector('[data-testid="p1p1-embed"]') as HTMLElement;
+    expect(tile).toBeInTheDocument();
+    expect(tile.tagName).toBe('DIV');
+    expect(tile.closest('p')).toBeNull();
+  });
+
   it('shows the caption after the pipe', () => {
     const c = renderMarkdown(`[[p1p1:${PACK_ID}|Sol Ring or Force of Will?]]\n`);
     expect(c.querySelector('[data-testid="p1p1-embed-caption"]')).toHaveTextContent('Sol Ring or Force of Will?');
